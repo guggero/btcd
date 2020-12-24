@@ -15,3 +15,5 @@ require (
 )
 
 go 1.14
+
+replace github.com/btcsuite/btcutil => github.com/guggero/btcutil v1.0.2-0.20201227210933-4776569ed3ee
