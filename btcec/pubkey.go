@@ -13,6 +13,7 @@ import (
 
 // These constants define the lengths of serialized public keys.
 const (
+	PubKeyBytesLenCompact      = 32
 	PubKeyBytesLenCompressed   = 33
 	PubKeyBytesLenUncompressed = 65
 	PubKeyBytesLenHybrid       = 65
@@ -160,6 +161,13 @@ func (p *PublicKey) SerializeCompressed() []byte {
 		format |= 0x1
 	}
 	b = append(b, format)
+	return paddedAppend(32, b, p.X.Bytes())
+}
+
+// SerializeCompact serializes a public key in a 32-byte compact format as used
+// in BIP0340.
+func (p *PublicKey) SerializeCompact() []byte {
+	b := make([]byte, 0, PubKeyBytesLenCompact)
 	return paddedAppend(32, b, p.X.Bytes())
 }
 
