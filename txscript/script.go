@@ -107,6 +107,24 @@ func isWitnessPubKeyHash(pops []parsedOpcode) bool {
 		pops[1].opcode.value == OP_DATA_20
 }
 
+// IsPayToTaproot returns true if the script is in the standard pay-to-taproot
+// (P2TR) format, false otherwise.
+func IsPayToTaproot(script []byte) bool {
+	pops, err := parseScript(script)
+	if err != nil {
+		return false
+	}
+	return isTaprootPubKey(pops)
+}
+
+// isTaprootPubKey returns true if the passed script is a pay-to-taproot, and
+// false otherwise.
+func isTaprootPubKey(pops []parsedOpcode) bool {
+	return len(pops) == 2 &&
+		pops[0].opcode.value == OP_1 &&
+		pops[1].opcode.value == OP_DATA_32
+}
+
 // IsWitnessProgram returns true if the passed script is a valid witness
 // program which is encoded according to the passed witness program version. A
 // witness program must be a small integer (from 0-16), followed by 2-40 bytes

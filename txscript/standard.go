@@ -58,6 +58,7 @@ const (
 	WitnessV0ScriptHashTy                    // Pay to witness script hash.
 	MultiSigTy                               // Multi signature.
 	NullDataTy                               // Empty data-only (provably prunable).
+	TaprootTy                                // Pay to taproot pubkey.
 	WitnessUnknownTy                         // Witness unknown
 )
 
@@ -72,6 +73,7 @@ var scriptClassToName = []string{
 	WitnessV0ScriptHashTy: "witness_v0_scripthash",
 	MultiSigTy:            "multisig",
 	NullDataTy:            "nulldata",
+	TaprootTy:             "witness_v1_taproot",
 	WitnessUnknownTy:      "witness_unknown",
 }
 
@@ -175,6 +177,8 @@ func typeOfScript(pops []parsedOpcode) ScriptClass {
 		return MultiSigTy
 	} else if isNullData(pops) {
 		return NullDataTy
+	} else if isTaprootPubKey(pops) {
+		return TaprootTy
 	}
 	return NonStandardTy
 }
@@ -221,6 +225,9 @@ func expectedInputs(pops []parsedOpcode, class ScriptClass) int {
 
 	case WitnessV0PubKeyHashTy:
 		return 2
+
+	case TaprootTy:
+		return 2 //TODO(guggero): is this correct?
 
 	case ScriptHashTy:
 		// Not including script.  That is handled by the caller.
@@ -325,6 +332,13 @@ func CalcScriptInfo(sigScript, pkScript []byte, witness wire.TxWitness,
 		si.SigOps = GetWitnessSigOpCount(sigScript, pkScript, witness)
 		si.NumInputs = len(witness)
 
+	// If segwit is active, and this is a p2tr output, then we'll treat the
+	// script as a p2pkh output in essence.
+	case si.PkScriptClass == TaprootTy && segwit:
+
+		si.SigOps = GetWitnessSigOpCount(sigScript, pkScript, witness)
+		si.NumInputs = len(witness)
+
 	// We'll attempt to detect the nested p2sh case so we can accurately
 	// count the signature operations involved.
 	case si.PkScriptClass == ScriptHashTy &&
@@ -415,6 +429,12 @@ func payToWitnessPubKeyHashScript(pubKeyHash []byte) ([]byte, error) {
 	return NewScriptBuilder().AddOp(OP_0).AddData(pubKeyHash).Script()
 }
 
+// payToTaproot creates a new script to pay to a version 1
+// taproot witness program. The passed hash is expected to be valid.
+func payToTaproot(tapKey []byte) ([]byte, error) {
+	return NewScriptBuilder().AddOp(OP_1).AddData(tapKey).Script()
+}
+
 // payToScriptHashScript creates a new script to pay a transaction output to a
 // script hash. It is expected that the input is a valid hash.
 func payToScriptHashScript(scriptHash []byte) ([]byte, error) {
@@ -474,6 +494,12 @@ func PayToAddrScript(addr btcutil.Address) ([]byte, error) {
 				nilAddrErrStr)
 		}
 		return payToWitnessScriptHashScript(addr.ScriptAddress())
+	case *btcutil.AddressTaproot:
+		if addr == nil {
+			return nil, scriptError(ErrUnsupportedAddress,
+				nilAddrErrStr)
+		}
+		return payToTaproot(addr.ScriptAddress())
 	}
 
 	str := fmt.Sprintf("unable to generate payment script for unsupported "+
@@ -572,6 +598,19 @@ func ExtractPkScriptAddrs(pkScript []byte, chainParams *chaincfg.Params) (Script
 		requiredSigs = 1
 		addr, err := btcutil.NewAddressWitnessPubKeyHash(pops[1].data,
 			chainParams)
+		if err == nil {
+			addrs = append(addrs, addr)
+		}
+
+	case TaprootTy:
+		// A pay-to-taproot script is of thw form:
+		//  OP_1 <32-byte pubkey>
+		// Therefore, the pubkey is the second item on the stack.
+		// Skip the pubkey if it's invalid for some reason.
+		requiredSigs = 1
+		addr, err := btcutil.NewAddressTaproot(
+			pops[1].data, chainParams,
+		)
 		if err == nil {
 			addrs = append(addrs, addr)
 		}
