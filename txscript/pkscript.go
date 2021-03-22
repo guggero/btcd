@@ -180,6 +180,11 @@ func computeNonWitnessPkScript(sigScript []byte) (PkScript, error) {
 	case !IsPushOnlyScript(sigScript):
 		return PkScript{}, ErrUnsupportedScriptType
 
+	// If we have a bare signature being pushed, the output being spent is a
+	// bare P2PK which we don't support.
+	case isPushSigOnly(sigScript):
+		return PkScript{}, ErrUnsupportedScriptType
+
 	// If a signature script is provided with a length long enough to
 	// represent a P2PKH script, then we'll attempt to parse the compressed
 	// public key from it.
@@ -263,6 +268,26 @@ func computeWitnessPkScript(witness wire.TxWitness) (PkScript, error) {
 	}
 
 	return pkScript, nil
+}
+
+// isPushSigOnly returns whether or not the passed signature script only pushes
+// a single data item and that data item is a valid DER signature. This
+// indicates that the output being spent is a bare P2PK since a sigScript for a
+// P2PKH always also pushes the public key last.
+//
+// False will be returned when the script does not parse.
+func isPushSigOnly(sigScript []byte) bool {
+	pops, err := parseScript(sigScript)
+	if err != nil {
+		return false
+	}
+
+	if len(pops) != 1 {
+		return false
+	}
+
+	_, err = btcec.ParseDERSignature(pops[0].data, btcec.S256())
+	return err == nil
 }
 
 // hash160 returns the RIPEMD160 hash of the SHA-256 HASH of the given data.
