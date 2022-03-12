@@ -1,7 +1,4 @@
-// Copyright 2013-2016 The btcsuite developers
-// Copyright (c) 2015-2021 The Decred developers
-// Use of this source code is governed by an ISC
-// license that can be found in the LICENSE file.
+// Copyright 2013-2022 The btcsuite developers
 
 package musig2
 
@@ -130,13 +127,13 @@ func Sign(secNonce [SecNonceSize]byte, privKey *btcec.PrivateKey,
 		return nil, err
 	}
 
-	// Compute the hash of all the keys here as we'll need it do aggregrate
+	// Compute the hash of all the keys here as we'll need it do aggregate
 	// the keys and also at the final step of signing.
 	keysHash := keyHashFingerprint(pubKeys, opts.sortKeys)
 
 	// Next we'll construct the aggregated public key based on the set of
 	// signers.
-	uniqueKeyIndex := secondUniqueKeyIndex(pubKeys)
+	uniqueKeyIndex := secondUniqueKeyIndex(pubKeys, opts.sortKeys)
 	combinedKey := AggregateKeys(
 		pubKeys, opts.sortKeys, WithKeysHash(keysHash),
 		WithUniqueKeyIndex(uniqueKeyIndex),
@@ -240,7 +237,7 @@ func Sign(secNonce [SecNonceSize]byte, privKey *btcec.PrivateKey,
 	// If we're not in fast sign mode, then we'll also validate our partial
 	// signature.
 	if !opts.fastSign {
-		pubNonce := secNonceToPubNonce(&secNonce)
+		pubNonce := secNonceToPubNonce(secNonce)
 		sigValid := sig.Verify(
 			pubNonce, combinedNonce, pubKeys, pubKey, msg,
 			signOpts...,
@@ -299,11 +296,10 @@ func verifyPartialSig(partialSig *PartialSignature, pubNonce [PubNonceSize]byte,
 		return err
 	}
 
-	// Compute the hash of all the keys here as we'll need it do aggregrate
+	// Compute the hash of all the keys here as we'll need it do aggregate
 	// the keys and also at the final step of verification.
 	keysHash := keyHashFingerprint(keySet, opts.sortKeys)
-
-	uniqueKeyIndex := secondUniqueKeyIndex(keySet)
+	uniqueKeyIndex := secondUniqueKeyIndex(keySet, opts.sortKeys)
 
 	// Next we'll construct the aggregated public key based on the set of
 	// signers.
