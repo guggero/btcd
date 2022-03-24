@@ -5,6 +5,7 @@ package musig2
 import (
 	"bytes"
 	"fmt"
+	"io"
 
 	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 
@@ -59,6 +60,34 @@ func NewPartialSignature(s *btcec.ModNScalar,
 		S: s,
 		R: r,
 	}
+}
+
+// Encode writes a serialized version of the partial signature to the passed
+// io.Writer
+func (p *PartialSignature) Encode(w io.Writer) error {
+	var sBytes [32]byte
+	p.S.PutBytes(&sBytes)
+
+	if _, err := w.Write(sBytes[:]); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Decode attempts to parse a serialized PartialSignature stored in the passed
+// io reader.
+func (p *PartialSignature) Decode(r io.Reader) error {
+	p.S = new(btcec.ModNScalar)
+
+	var sBytes [32]byte
+	if _, err := io.ReadFull(r, sBytes[:]); err != nil {
+		return nil
+	}
+
+	p.S.SetBytes(&sBytes)
+
+	return nil
 }
 
 // SignOption is a functional option argument that allows callers to modify the

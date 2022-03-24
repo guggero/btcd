@@ -12,24 +12,29 @@ import (
 var (
 	// ErrSignerNotInKeySet is returned when a the private key for a signer
 	// isn't included in the set of signing public keys.
-	ErrSignerNotInKeySet = fmt.Errorf("Signing key is not found in key" +
+	ErrSignerNotInKeySet = fmt.Errorf("signing key is not found in key" +
 		" set")
 
 	// ErrAlredyHaveAllNonces is called when RegisterPubNonce is called too
 	// many times for a given signing session.
-	ErrAlredyHaveAllNonces = fmt.Errorf("Already have all nonces")
+	ErrAlredyHaveAllNonces = fmt.Errorf("already have all nonces")
 
 	// ErrAlredyHaveAllSigs is called when CombineSig is called too many
 	// times for a given signing session.
-	ErrAlredyHaveAllSigs = fmt.Errorf("Already have all sigs")
+	ErrAlredyHaveAllSigs = fmt.Errorf("already have all sigs")
 
 	// ErrSigningContextReuse is returned if a user attempts to sign using
 	// the same signing context more than once.
-	ErrSigningContextReuse = fmt.Errorf("Nonce already used")
+	ErrSigningContextReuse = fmt.Errorf("nonce already used")
 
 	// ErrFinalSigInvalid is returned when the combined signature turns out
 	// to be invalid.
-	ErrFinalSigInvalid = fmt.Errorf("Final signature is invalid")
+	ErrFinalSigInvalid = fmt.Errorf("final signature is invalid")
+
+	// ErrCombinedNonceUnavailable is returned when a caller attempts to
+	// sign a partial signature, without first having collected all the
+	// required combined nonces.
+	ErrCombinedNonceUnavailable = fmt.Errorf("missing combined nonce")
 )
 
 // Context is a managed signing context for musig2. It takes care of things
@@ -51,7 +56,7 @@ type Context struct {
 	// This is used to speed up signing and verification computations.
 	uniqueKeyIndex int
 
-	// keysHash is the hash of all the keys as defined in musgi2.
+	// keysHash is the hash of all the keys as defined in musig2.
 	keysHash []byte
 
 	// shouldSort keeps track of if the public keys should be sorted before
@@ -123,6 +128,14 @@ func (c *Context) PubKey() btcec.PublicKey {
 	return *c.pubKey
 }
 
+// SigningKeys returns the set of keys used for signing.
+func (c *Context) SigningKeys() []*btcec.PublicKey {
+	keys := make([]*btcec.PublicKey, len(c.keySet))
+	copy(keys, c.keySet)
+
+	return keys
+}
+
 // Session represents a musig2 signing session. A new instance should be
 // created each time a multi-signature is needed. The session struct handles
 // nonces management, incremental partial sig vitrifaction, as well as final
@@ -137,7 +150,7 @@ type Session struct {
 
 	pubNonces [][PubNonceSize]byte
 
-	combinedNonce [PubNonceSize]byte
+	combinedNonce *[PubNonceSize]byte
 
 	msg [32]byte
 
@@ -173,6 +186,12 @@ func (s *Session) PublicNonce() [PubNonceSize]byte {
 	return s.localNonces.PubNonce
 }
 
+// NumRegisteredNonces returns the total number of nonces that have been
+// regsitered so far.
+func (s *Session) NumRegisteredNonces() int {
+	return len(s.pubNonces)
+}
+
 // RegisterPubNonce should be called for each public nonce from the set of
 // signers. This method returns true once all the public nonces have been
 // accounted for.
@@ -197,7 +216,7 @@ func (s *Session) RegisterPubNonce(nonce [PubNonceSize]byte) (bool, error) {
 			return false, err
 		}
 
-		s.combinedNonce = combinedNonce
+		s.combinedNonce = &combinedNonce
 	}
 
 	return haveAllNonces, nil
@@ -211,14 +230,20 @@ func (s *Session) Sign(msg [32]byte,
 
 	s.msg = msg
 
+	switch {
 	// If no local nonce is present, then this means we already signed, so
 	// we'll return an error to prevent nonce re-use.
-	if s.localNonces == nil {
+	case s.localNonces == nil:
 		return nil, ErrSigningContextReuse
+
+	// We also need to make sure we have the combined nonce, otherwise this
+	// funciton was called too early.
+	case s.combinedNonce == nil:
+		return nil, ErrCombinedNonceUnavailable
 	}
 
 	partialSig, err := Sign(
-		s.localNonces.SecNonce, s.ctx.signingKey, s.combinedNonce,
+		s.localNonces.SecNonce, s.ctx.signingKey, *s.combinedNonce,
 		s.ctx.keySet, msg, signOpts...,
 	)
 
