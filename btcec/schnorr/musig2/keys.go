@@ -154,6 +154,10 @@ type KeyTweakDesc struct {
 	// IsXOnly if true, then the public key will be mapped to an x-only key
 	// before the tweaking operation is applied.
 	IsXOnly bool
+
+	// IsBIP0086 denotes that this is a Taproot tweak that does not commit
+	// to a root hash, only the internal key itself.
+	IsBIP0086 bool
 }
 
 // KeyAggOption is a functional option argument that allows callers to specify
@@ -220,6 +224,14 @@ func WithTaprootKeyTweak(scriptRoot []byte) KeyAggOption {
 			{
 				Tweak:   tweak,
 				IsXOnly: true,
+				// The script root shouldn't be nil if we get
+				// here, but let's still check that. An empty
+				// script root denotes a BIP-0086 key only
+				// spend in which case the actual tweak value
+				// will be ignored as it should be an empty byte
+				// slice anyway.
+				IsBIP0086: scriptRoot != nil &&
+					len(scriptRoot) == 0,
 			},
 		}
 		o.taprootTweak = true
@@ -370,18 +382,33 @@ func AggregateKeys(keys []*btcec.PublicKey, sort bool,
 	// We'll copy over the key at this point, since this represents the
 	// aggregated key before any tweaks have been applied. This'll be used
 	// as the internal key for script path proofs.
+	finalKeyJ.ToAffine()
 	combinedKey := btcec.NewPublicKey(&finalKeyJ.X, &finalKeyJ.Y)
 
 	// At this point, if this is a taproot tweak, then we'll modify the
 	// base tweak value to use the BIP 341 tweak value.
 	if opts.taprootTweak {
+		// Emulate the same behavior as txscript.ComputeTaprootOutputKey
+		// which only operates on the x-only public key.
+		key, _ := schnorr.ParsePubKey(schnorr.SerializePubKey(
+			combinedKey,
+		))
+
+		// We only use the actual tweak bytes if we're not committing to
+		// a BIP-0086 key only spend output. Otherwise, we just commit
+		// to the internal key and an empty byte slice as the root hash.
+		tweakBytes := make([]byte, 0)
+		if !opts.tweaks[0].IsBIP0086 {
+			tweakBytes = opts.tweaks[0].Tweak[:]
+		}
+
 		// Compute the taproot key tagged hash of:
 		// h_tapTweak(internalKey || scriptRoot). We only do this for
 		// the first one, as you can only specify a single tweak when
 		// using the taproot mode with this API.
 		tapTweakHash := chainhash.TaggedHash(
-			chainhash.TagTapTweak, schnorr.SerializePubKey(combinedKey),
-			opts.tweaks[0].Tweak[:],
+			chainhash.TagTapTweak, schnorr.SerializePubKey(key),
+			tweakBytes,
 		)
 		opts.tweaks[0].Tweak = *tapTweakHash
 	}
