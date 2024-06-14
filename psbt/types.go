@@ -166,6 +166,24 @@ const (
 	// 32-byte hash denoting the root hash of a merkle tree of scripts.
 	TaprootMerkleRootType InputType = 0x18
 
+	// MuSig2ParticipantsInputType is a type that carries the participant
+	// public keys and aggregated key for a MuSig2 signing session
+	// ({0x1a}|{aggregate_key}). The value is a list of 33-byte compressed
+	// public keys in the order required for aggregation.
+	MuSig2ParticipantsInputType InputType = 0x1a
+
+	// MuSig2PubNoncesInputType is a type that carries the public nonces
+	// provided by participants in a MuSig2 signing session
+	// ({0x1b}|{participant_key}|{aggregate_key}[|{tapleaf_hash}]). The
+	// value is the 66-byte public nonces provided by the participant.
+	MuSig2PubNoncesInputType InputType = 0x1b
+
+	// MuSig2PartialSigsInputType is a type that carries the partial
+	// signatures provided by participants in a MuSig2 signing session
+	// ({0x1c}|{participant_key}|{aggregate_key}[|{tapleaf_hash}]). The
+	// value is the 32-byte partial signature provided by the participant.
+	MuSig2PartialSigsInputType InputType = 0x1c
+
 	// SilentPaymentShareInputType is used to house the ECDH share for a
 	// single input in silent payments.
 	SilentPaymentShareInputType InputType = 0x1d
@@ -223,6 +241,12 @@ const (
 	// followed by said number of 32-byte leaf hashes. The rest of the value
 	// is then identical to the Bip32DerivationInputType value.
 	TaprootBip32DerivationOutputType OutputType = 7
+
+	// MuSig2ParticipantsOutputType is a type that carries the participant
+	// public keys and aggregated key for a MuSig2 signing session
+	// ({0x08}|{aggregate_key}). The value is a list of 33-byte compressed
+	// public keys in the order required for aggregation.
+	MuSig2ParticipantsOutputType OutputType = 0x08
 
 	// SilentPaymentV0InfoOutputType is used to house the silent payment
 	// recipient information for a version 0 silent payment output.
