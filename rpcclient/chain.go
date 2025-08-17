@@ -1102,6 +1102,62 @@ func (c *Client) GetTxOutSetInfo() (*btcjson.GetTxOutSetInfoResult, error) {
 	return c.GetTxOutSetInfoAsync().Receive()
 }
 
+// FutureGetTxOutProofResult is a future promise to deliver the result of a
+// GetTxOutProofAsync RPC invocation (or an applicable error).
+type FutureGetTxOutProofResult chan *Response
+
+// Receive waits for the Response promised by the future and returns the
+// results of GetTxOutSetInfoAsync RPC invocation.
+func (r FutureGetTxOutProofResult) Receive() (*wire.MsgMerkleBlock, error) {
+	res, err := ReceiveFuture(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// Unmarshal result as a string.
+	var txProof string
+	err = json.Unmarshal(res, &txProof)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decode the serialized proof hex to raw bytes.
+	txProofBytes, err := hex.DecodeString(txProof)
+	if err != nil {
+		return nil, err
+	}
+
+	var merkleBlock wire.MsgMerkleBlock
+	err = merkleBlock.BtcDecode(
+		bytes.NewReader(txProofBytes), wire.ProtocolVersion,
+		wire.WitnessEncoding,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &merkleBlock, nil
+}
+
+// GetTxOutProofAsync returns an instance of a type that can be used to get
+// the result of the RPC at some future time by invoking the Receive function on
+// the returned instance.
+//
+// See GetTxOutProof for the blocking version and more details.
+func (c *Client) GetTxOutProofAsync(txIDs []string,
+	blockHash *string) FutureGetTxOutProofResult {
+
+	cmd := btcjson.NewGetTxOutProofCmd(txIDs, blockHash)
+	return c.SendCmd(cmd)
+}
+
+// GetTxOutProof returns the proof that a transaction was included in a block.
+func (c *Client) GetTxOutProof(txIDs []string,
+	blockHash *string) (*wire.MsgMerkleBlock, error) {
+
+	return c.GetTxOutProofAsync(txIDs, blockHash).Receive()
+}
+
 // FutureRescanBlocksResult is a future promise to deliver the result of a
 // RescanBlocksAsync RPC invocation (or an applicable error).
 //
