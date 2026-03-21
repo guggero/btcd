@@ -29,6 +29,11 @@ type PInput struct {
 	TaprootInternalKey     []byte
 	TaprootMerkleRoot      []byte
 	Unknowns               []*Unknown
+	PreviousTxid           []byte
+	OutputIndex            uint32
+	TimeLocktime           uint32
+	HeightLocktime         uint32
+	Sequence               uint32
 }
 
 // NewPsbtInput creates an instance of PsbtInput given either a nonWitnessUtxo
@@ -61,6 +66,44 @@ func (pi *PInput) IsSane() bool {
 	// See https://github.com/bitcoin/bitcoin/pull/19215.
 
 	return true
+}
+
+func (pi *PInput) addUnknown(keyCode byte, keyData, value []byte) error {
+	return addUnknownField(&pi.Unknowns, keyCode, keyData, value)
+}
+
+// CopyInputFields copies all relevant input fields and unknowns from another PInput.
+// This preserves PSBTv2 transaction fields and unknown fields that must be retained
+// during finalization as mandated by BIP-370.
+//
+// For PSBTv0: Only unknowns and sequence are relevant (other fields are zero)
+// For PSBTv2: All fields contain important data that must be preserved
+//
+// It performs a deep copy of the Unknowns slice to ensure the new PInput
+// is memory-independent from the source.
+//
+// BIP-370 Requirement:
+//
+//	"The PSBT_IN_PREVIOUS_TXID, PSBT_IN_OUTPUT_INDEX, PSBT_IN_SEQUENCE,
+//	 PSBT_IN_REQUIRED_TIME_LOCKTIME, and PSBT_IN_REQUIRED_HEIGHT_LOCKTIME
+//	 fields must be retained."
+func (pi *PInput) CopyInputFields(from *PInput) {
+	pi.PreviousTxid = from.PreviousTxid
+	pi.OutputIndex = from.OutputIndex
+	pi.Sequence = from.Sequence
+	pi.TimeLocktime = from.TimeLocktime
+	pi.HeightLocktime = from.HeightLocktime
+
+	// Deep copy Unknowns (applies to both v0 and v2)
+	if len(from.Unknowns) > 0 {
+		pi.Unknowns = make([]*Unknown, len(from.Unknowns))
+		for i, u := range from.Unknowns {
+			pi.Unknowns[i] = &Unknown{
+				Key:   append([]byte(nil), u.Key...),
+				Value: append([]byte(nil), u.Value...),
+			}
+		}
+	}
 }
 
 // deserialize attempts to deserialize a new PInput from the passed io.Reader.
@@ -363,34 +406,89 @@ func (pi *PInput) deserialize(r io.Reader) error {
 
 			pi.TaprootMerkleRoot = value
 
-		default:
-			// A fall through case for any proprietary types.
-			keyCodeAndData := append(
-				[]byte{byte(keyCode)}, keyData...,
-			)
-			newUnknown := &Unknown{
-				Key:   keyCodeAndData,
-				Value: value,
+		case PreviousTxidInputType:
+			if pi.PreviousTxid != nil {
+				return ErrDuplicateKey
 			}
-
-			// Duplicate key+keyData are not allowed.
-			for _, x := range pi.Unknowns {
-				if bytes.Equal(x.Key, newUnknown.Key) &&
-					bytes.Equal(x.Value, newUnknown.Value) {
-
-					return ErrDuplicateKey
+			if keyData != nil {
+				if err := pi.addUnknown(byte(keyCode), keyData, value); err != nil {
+					return err
 				}
+				break
+			}
+			if len(value) != 32 {
+				return ErrInvalidKeyData
 			}
 
-			pi.Unknowns = append(pi.Unknowns, newUnknown)
+			if bytes.Equal(value, make([]byte, 32)) {
+				return ErrInvalidKeyData
+			}
+
+			pi.PreviousTxid = value
+
+		case OutputIndexInputType:
+			if keyData != nil {
+				if err := pi.addUnknown(byte(keyCode), keyData, value); err != nil {
+					return err
+				}
+				break
+			}
+			if len(value) != 4 {
+				return ErrInvalidKeyData
+			}
+
+			pi.OutputIndex = binary.LittleEndian.Uint32(value)
+
+		case TimeLocktimeInputType:
+			if keyData != nil {
+				if err := pi.addUnknown(byte(keyCode), keyData, value); err != nil {
+					return err
+				}
+				break
+			}
+			if len(value) != 4 {
+				return ErrInvalidKeyData
+
+			}
+			pi.TimeLocktime = binary.LittleEndian.Uint32(value)
+
+		case HeightLocktimeInputType:
+			if keyData != nil {
+				if err := pi.addUnknown(byte(keyCode), keyData, value); err != nil {
+					return err
+				}
+				break
+			}
+			if len(value) != 4 {
+				return ErrInvalidKeyData
+			}
+			pi.HeightLocktime = binary.LittleEndian.Uint32(value)
+
+		case SequenceInputType:
+			if keyData != nil {
+				if err := pi.addUnknown(byte(keyCode), keyData, value); err != nil {
+					return err
+				}
+				break
+			}
+			if len(value) != 4 {
+				return ErrInvalidKeyData
+			}
+			pi.Sequence = binary.LittleEndian.Uint32(value)
+
+		default:
+			if err := pi.addUnknown(byte(keyCode), keyData, value); err != nil {
+				return err
+			}
 		}
+
 	}
 
 	return nil
 }
 
 // serialize attempts to serialize the target PInput into the passed io.Writer.
-func (pi *PInput) serialize(w io.Writer) error {
+func (pi *PInput) serialize(w io.Writer, version uint32) error {
 	if !pi.IsSane() {
 		return ErrInvalidPsbtFormat
 	}
@@ -423,7 +521,6 @@ func (pi *PInput) serialize(w io.Writer) error {
 			return err
 		}
 	}
-
 	if pi.FinalScriptSig == nil && pi.FinalScriptWitness == nil {
 		sort.Sort(PartialSigSorter(pi.PartialSigs))
 		for _, ps := range pi.PartialSigs {
@@ -592,6 +689,57 @@ func (pi *PInput) serialize(w io.Writer) error {
 		}
 	}
 
+	if version == 2 {
+
+		if pi.PreviousTxid != nil {
+			err := serializeKVPairWithType(
+				w, uint8(PreviousTxidInputType), nil, pi.PreviousTxid,
+			)
+			if err != nil {
+				return err
+			}
+
+		}
+		var outIndexByte [4]byte
+		binary.LittleEndian.PutUint32(outIndexByte[:], pi.OutputIndex)
+		err := serializeKVPairWithType(
+			w, uint8(OutputIndexInputType), nil, outIndexByte[:],
+		)
+		if err != nil {
+			return err
+		}
+
+		if pi.Sequence != wire.MaxTxInSequenceNum {
+			var seqBytes [4]byte
+			binary.LittleEndian.PutUint32(seqBytes[:], pi.Sequence)
+			err := serializeKVPairWithType(w, uint8(SequenceInputType), nil, seqBytes[:])
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.TimeLocktime != 0 {
+			var time_lockBytes [4]byte
+			binary.LittleEndian.PutUint32(time_lockBytes[:], pi.TimeLocktime)
+			err := serializeKVPairWithType(
+				w, uint8(TimeLocktimeInputType), nil, time_lockBytes[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.HeightLocktime != 0 {
+			var height_lockBytes [4]byte
+			binary.LittleEndian.PutUint32(height_lockBytes[:], pi.HeightLocktime)
+			err := serializeKVPairWithType(
+				w, uint8(HeightLocktimeInputType), nil, height_lockBytes[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+	}
 	// Unknown is a special case; we don't have a key type, only a key and
 	// a value field.
 	for _, kv := range pi.Unknowns {
