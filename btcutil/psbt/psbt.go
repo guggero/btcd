@@ -292,7 +292,7 @@ func (p *Packet) GetUnsignedTx() (*wire.MsgTx, error) {
 	}
 
 	for _, pOut := range p.Outputs {
-		txOut := wire.NewTxOut(int64(pOut.Amount), pOut.Script)
+		txOut := wire.NewTxOut(pOut.Amount, pOut.Script)
 		tx.AddTxOut(txOut)
 	}
 
@@ -369,9 +369,11 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 		outputCount      uint32
 		txVersion        uint32
 		txModifiable     uint8
-		txVersionSeen    bool
-		inputCountSeen   bool
-		outputCountSeen  bool
+		txVersionSeen        bool
+		inputCountSeen       bool
+		outputCountSeen      bool
+		fallbackLocktimeSeen bool
+		txModifiableSeen     bool
 	)
 
 	for {
@@ -451,13 +453,14 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 			if !isSaneKey(keyData, &isUnknown) {
 				break
 			}
-			if fallbackLocktime != 0 {
+			if fallbackLocktimeSeen {
 				return nil, ErrDuplicateKey
 			}
 			if len(value) != 4 {
 				return nil, ErrInvalidKeyData
 			}
 			fallbackLocktime = binary.LittleEndian.Uint32(value)
+			fallbackLocktimeSeen = true
 
 		case InputCountGlobalType:
 			if !isSaneKey(keyData, &isUnknown) {
@@ -491,13 +494,14 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 			if !isSaneKey(keyData, &isUnknown) {
 				break
 			}
-			if txModifiable != 0 {
+			if txModifiableSeen {
 				return nil, ErrDuplicateKey
 			}
 			if len(value) != 1 {
 				return nil, ErrInvalidKeyData
 			}
 			txModifiable = value[0]
+			txModifiableSeen = true
 
 		default:
 			isUnknown = true
@@ -812,7 +816,7 @@ func (p *Packet) GetTxFee() (btcutil.Amount, error) {
 
 	var sumOutputs int64
 	for _, pout := range p.Outputs {
-		sumOutputs += int64(pout.Amount)
+		sumOutputs += pout.Amount
 	}
 	// fallback for v0 PSBTs, which don't have explicit input UTXO information;
 	if p.Version < 2 {

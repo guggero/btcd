@@ -108,6 +108,13 @@ func (pi *PInput) CopyInputFields(from *PInput) {
 
 // deserialize attempts to deserialize a new PInput from the passed io.Reader.
 func (pi *PInput) deserialize(r io.Reader) error {
+	var (
+		outputIndexSeen  bool
+		sequenceSeen     bool
+		timeLocktimeSeen bool
+		heightLockSeen   bool
+	)
+
 	for {
 		keyCode, keyData, err := getKey(r)
 		if err != nil {
@@ -433,11 +440,14 @@ func (pi *PInput) deserialize(r io.Reader) error {
 				}
 				break
 			}
+			if outputIndexSeen {
+				return ErrDuplicateKey
+			}
 			if len(value) != 4 {
 				return ErrInvalidKeyData
 			}
-
 			pi.OutputIndex = binary.LittleEndian.Uint32(value)
+			outputIndexSeen = true
 
 		case TimeLocktimeInputType:
 			if keyData != nil {
@@ -446,11 +456,18 @@ func (pi *PInput) deserialize(r io.Reader) error {
 				}
 				break
 			}
+			if timeLocktimeSeen {
+				return ErrDuplicateKey
+			}
 			if len(value) != 4 {
 				return ErrInvalidKeyData
-
 			}
-			pi.TimeLocktime = binary.LittleEndian.Uint32(value)
+			tl := binary.LittleEndian.Uint32(value)
+			if tl < 500000000 {
+				return ErrInvalidKeyData
+			}
+			pi.TimeLocktime = tl
+			timeLocktimeSeen = true
 
 		case HeightLocktimeInputType:
 			if keyData != nil {
@@ -459,10 +476,18 @@ func (pi *PInput) deserialize(r io.Reader) error {
 				}
 				break
 			}
+			if heightLockSeen {
+				return ErrDuplicateKey
+			}
 			if len(value) != 4 {
 				return ErrInvalidKeyData
 			}
-			pi.HeightLocktime = binary.LittleEndian.Uint32(value)
+			hl := binary.LittleEndian.Uint32(value)
+			if hl == 0 || hl >= 500000000 {
+				return ErrInvalidKeyData
+			}
+			pi.HeightLocktime = hl
+			heightLockSeen = true
 
 		case SequenceInputType:
 			if keyData != nil {
@@ -471,10 +496,14 @@ func (pi *PInput) deserialize(r io.Reader) error {
 				}
 				break
 			}
+			if sequenceSeen {
+				return ErrDuplicateKey
+			}
 			if len(value) != 4 {
 				return ErrInvalidKeyData
 			}
 			pi.Sequence = binary.LittleEndian.Uint32(value)
+			sequenceSeen = true
 
 		default:
 			if err := pi.addUnknown(byte(keyCode), keyData, value); err != nil {
@@ -580,7 +609,90 @@ func (pi *PInput) serialize(w io.Writer, version uint32) error {
 				return err
 			}
 		}
+	}
 
+	if pi.FinalScriptSig != nil {
+		err := serializeKVPairWithType(
+			w, uint8(FinalScriptSigType), nil, pi.FinalScriptSig,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	if pi.FinalScriptWitness != nil {
+		err := serializeKVPairWithType(
+			w, uint8(FinalScriptWitnessType), nil, pi.FinalScriptWitness,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	// PSBTv2 fields (0x0e-0x12) are serialized here, between
+	// FinalScriptWitness (0x08) and Taproot fields (0x13+), to maintain
+	// the ascending key order required by BIP-174.
+	if version == 2 {
+		if pi.PreviousTxid != nil {
+			err := serializeKVPairWithType(
+				w, uint8(PreviousTxidInputType), nil, pi.PreviousTxid,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		var outIndexByte [4]byte
+		binary.LittleEndian.PutUint32(outIndexByte[:], pi.OutputIndex)
+		err := serializeKVPairWithType(
+			w, uint8(OutputIndexInputType), nil, outIndexByte[:],
+		)
+		if err != nil {
+			return err
+		}
+
+		if pi.Sequence != wire.MaxTxInSequenceNum {
+			var seqBytes [4]byte
+			binary.LittleEndian.PutUint32(seqBytes[:], pi.Sequence)
+			err := serializeKVPairWithType(
+				w, uint8(SequenceInputType), nil, seqBytes[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.TimeLocktime != 0 {
+			var timeLockBytes [4]byte
+			binary.LittleEndian.PutUint32(
+				timeLockBytes[:], pi.TimeLocktime,
+			)
+			err := serializeKVPairWithType(
+				w, uint8(TimeLocktimeInputType), nil,
+				timeLockBytes[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		if pi.HeightLocktime != 0 {
+			var heightLockBytes [4]byte
+			binary.LittleEndian.PutUint32(
+				heightLockBytes[:], pi.HeightLocktime,
+			)
+			err := serializeKVPairWithType(
+				w, uint8(HeightLocktimeInputType), nil,
+				heightLockBytes[:],
+			)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	// Taproot fields (0x13-0x18) are only written for non-finalized inputs.
+	if pi.FinalScriptSig == nil && pi.FinalScriptWitness == nil {
 		if pi.TaprootKeySpendSig != nil {
 			err := serializeKVPairWithType(
 				w, uint8(TaprootKeySpendSignatureType), nil,
@@ -664,76 +776,6 @@ func (pi *PInput) serialize(w io.Writer, version uint32) error {
 			err := serializeKVPairWithType(
 				w, uint8(TaprootMerkleRootType), nil,
 				pi.TaprootMerkleRoot,
-			)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	if pi.FinalScriptSig != nil {
-		err := serializeKVPairWithType(
-			w, uint8(FinalScriptSigType), nil, pi.FinalScriptSig,
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	if pi.FinalScriptWitness != nil {
-		err := serializeKVPairWithType(
-			w, uint8(FinalScriptWitnessType), nil, pi.FinalScriptWitness,
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	if version == 2 {
-
-		if pi.PreviousTxid != nil {
-			err := serializeKVPairWithType(
-				w, uint8(PreviousTxidInputType), nil, pi.PreviousTxid,
-			)
-			if err != nil {
-				return err
-			}
-
-		}
-		var outIndexByte [4]byte
-		binary.LittleEndian.PutUint32(outIndexByte[:], pi.OutputIndex)
-		err := serializeKVPairWithType(
-			w, uint8(OutputIndexInputType), nil, outIndexByte[:],
-		)
-		if err != nil {
-			return err
-		}
-
-		if pi.Sequence != wire.MaxTxInSequenceNum {
-			var seqBytes [4]byte
-			binary.LittleEndian.PutUint32(seqBytes[:], pi.Sequence)
-			err := serializeKVPairWithType(w, uint8(SequenceInputType), nil, seqBytes[:])
-			if err != nil {
-				return err
-			}
-		}
-
-		if pi.TimeLocktime != 0 {
-			var time_lockBytes [4]byte
-			binary.LittleEndian.PutUint32(time_lockBytes[:], pi.TimeLocktime)
-			err := serializeKVPairWithType(
-				w, uint8(TimeLocktimeInputType), nil, time_lockBytes[:],
-			)
-			if err != nil {
-				return err
-			}
-		}
-
-		if pi.HeightLocktime != 0 {
-			var height_lockBytes [4]byte
-			binary.LittleEndian.PutUint32(height_lockBytes[:], pi.HeightLocktime)
-			err := serializeKVPairWithType(
-				w, uint8(HeightLocktimeInputType), nil, height_lockBytes[:],
 			)
 			if err != nil {
 				return err

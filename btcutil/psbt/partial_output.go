@@ -19,7 +19,7 @@ type POutput struct {
 	TaprootTapTree         []byte
 	TaprootBip32Derivation []*TaprootBip32Derivation
 	Unknowns               []*Unknown
-	Amount                 uint64
+	Amount                 int64
 	Script                 []byte
 }
 
@@ -160,8 +160,8 @@ func (po *POutput) deserialize(r io.Reader) error {
 			if len(value) != 8 {
 				return ErrInvalidKeyData
 			}
-			// It is an 8 byte little endian.
-			po.Amount = binary.LittleEndian.Uint64(value)
+			// BIP-370: 64-bit signed little endian integer.
+			po.Amount = int64(binary.LittleEndian.Uint64(value))
 
 		case ScriptOutputType:
 			if keyData != nil {
@@ -219,7 +219,7 @@ func (po *POutput) serialize(w io.Writer, version uint32) error {
 	}
 	if version == 2 {
 		var buf [8]byte
-		binary.LittleEndian.PutUint64(buf[:], po.Amount)
+		binary.LittleEndian.PutUint64(buf[:], uint64(po.Amount))
 		err := serializeKVPairWithType(w, uint8(AmountOutputType), nil, buf[:])
 		if err != nil {
 			return err

@@ -1724,7 +1724,7 @@ func TestPsbtV2LifeCycle(t *testing.T) {
 	require.Equal(t, uint32(1), p2.InputCount)
 	require.Equal(t, txid[:], p2.Inputs[0].PreviousTxid)
 	require.Equal(t, uint32(0), p2.Inputs[0].Sequence)
-	require.Equal(t, uint64(100000000), p2.Outputs[0].Amount)
+	require.Equal(t, int64(100000000), p2.Outputs[0].Amount)
 
 	// 6. Extract the transaction and verify it works.
 	// (Note: For extraction to work, we need to bypass the IsComplete check

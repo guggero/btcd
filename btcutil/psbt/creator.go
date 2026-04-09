@@ -117,7 +117,7 @@ func (p *Packet) AddInput(outPoint wire.OutPoint, sequence uint32) error {
 // script.
 func (p *Packet) AddOutput(amount int64, script []byte) error {
 	return p.AddOutputV2(POutput{
-		Amount: uint64(amount),
+		Amount: amount,
 		Script: script,
 	})
 }
