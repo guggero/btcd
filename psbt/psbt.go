@@ -150,6 +150,11 @@ type Packet struct {
 	// the validity of the shares for a silent payment.
 	SilentPaymentDLEQs []SilentPaymentDLEQ
 
+	// GenericSignedMessage contains a BIP-0322 generic message to be
+	// signed. An empty message is a valid message, that's why this field
+	// is a nillable string.
+	GenericSignedMessage *string
+
 	// Unknowns are the set of custom types (global only) within this PSBT.
 	Unknowns []*Unknown
 }
@@ -254,10 +259,11 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 	// Next we parse any unknowns that may be present, making sure that we
 	// break at the separator.
 	var (
-		xPubSlice    []XPub
-		spsSlice     []SilentPaymentShare
-		spdSlice     []SilentPaymentDLEQ
-		unknownSlice []*Unknown
+		xPubSlice            []XPub
+		spsSlice             []SilentPaymentShare
+		spdSlice             []SilentPaymentDLEQ
+		genericSignedMessage *string
+		unknownSlice         []*Unknown
 	)
 	for {
 		keyint, keydata, err := getKey(r)
@@ -321,6 +327,24 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 
 			spdSlice = append(spdSlice, *proof)
 
+		case GenericSignedMessageType:
+			// Validate that there is no keydata and no duplicate
+			// message as mandated by BIP322.
+			if len(keydata) > 0 || genericSignedMessage != nil {
+				return nil, ErrInvalidPsbtFormat
+			}
+
+			// Golang's default string encoding is UTF-8, so we
+			// don't need to convert anything. But we need to
+			// validate that the string only contains valid UTF-8
+			// sequences.
+			if !utf8.Valid(value) {
+				return nil, ErrInvalidPsbtFormat
+			}
+
+			messageString := string(value)
+			genericSignedMessage = &messageString
+
 		default:
 			keyintanddata := []byte{byte(keyint)}
 			keyintanddata = append(keyintanddata, keydata...)
@@ -359,13 +383,14 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*Packet, error) {
 
 	// Populate the new Packet object.
 	newPsbt := Packet{
-		UnsignedTx:          msgTx,
-		Inputs:              inSlice,
-		Outputs:             outSlice,
-		XPubs:               xPubSlice,
-		SilentPaymentShares: spsSlice,
-		SilentPaymentDLEQs:  spdSlice,
-		Unknowns:            unknownSlice,
+		UnsignedTx:           msgTx,
+		Inputs:               inSlice,
+		Outputs:              outSlice,
+		XPubs:                xPubSlice,
+		SilentPaymentShares:  spsSlice,
+		SilentPaymentDLEQs:   spdSlice,
+		GenericSignedMessage: genericSignedMessage,
+		Unknowns:             unknownSlice,
 	}
 
 	// Extended sanity checking is applied here to make sure the
@@ -517,6 +542,17 @@ func (p *Packet) Serialize(w io.Writer) error {
 		keyBytes, valueBytes := SerializeSilentPaymentDLEQ(&dleq)
 		err := serializeKVPairWithType(
 			w, uint8(SilentPaymentDLEQType), keyBytes, valueBytes,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Serialize the generic signed message.
+	if p.GenericSignedMessage != nil {
+		msgBytes := []byte(*p.GenericSignedMessage)
+		err := serializeKVPairWithType(
+			w, uint8(GenericSignedMessageType), nil, msgBytes,
 		)
 		if err != nil {
 			return err

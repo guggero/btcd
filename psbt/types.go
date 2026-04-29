@@ -38,6 +38,13 @@ const (
 	// payments.
 	SilentPaymentDLEQType GlobalType = 0x08
 
+	// GenericSignedMessageType is used to house a BIP-0322 generic signed
+	// message, encoded as UTF-8.
+	//
+	// The key is {0x09} with no key data, and the value is the UTF-8
+	// encoded message.
+	GenericSignedMessageType GlobalType = 0x09
+
 	// VersionType houses the global version number of this PSBT. There is
 	// no key (only contains the byte type), then the value if omitted, is
 	// assumed to be zero.
