@@ -30,6 +30,13 @@ const (
 	// extended public key.
 	XPubType GlobalType = 1
 
+	// GenericSignedMessageType is used to house a BIP-0322 generic signed
+	// message, encoded as UTF-8.
+	//
+	// The key is {0x09} with no key data, and the value is the UTF-8
+	// encoded message.
+	GenericSignedMessageType GlobalType = 0x09
+
 	// SilentPaymentShareType is used to house the ECDH shares for silent
 	// payments.
 	SilentPaymentShareType GlobalType = 0x07
