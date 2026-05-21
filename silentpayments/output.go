@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 // OutputWithAddress is a struct that holds the generated shared public key and

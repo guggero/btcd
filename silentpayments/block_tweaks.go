@@ -5,12 +5,12 @@ import (
 	"errors"
 	"slices"
 
-	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/txscript/v2"
-	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
 )
 
@@ -170,7 +170,7 @@ func PublicKeyFromInput(txIn *wire.TxIn,
 		for i := len(txIn.SignatureScript); i >= 0; i-- {
 			if i-33 >= 0 {
 				pubKey := txIn.SignatureScript[i-33 : i]
-				pubKeyHash := address.Hash160(pubKey)
+				pubKeyHash := btcutil.Hash160(pubKey)
 
 				if bytes.Equal(targetHash, pubKeyHash) {
 					return btcec.ParsePubKey(pubKey)
