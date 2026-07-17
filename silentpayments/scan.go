@@ -106,11 +106,31 @@ func TransactionOutputKeysForFilter(txTweak btcec.PublicKey,
 	// rest of the output keys after fetching the full block/transaction.
 	const k = 0
 
+	// The ECDH shared secret depends on the scan private key and the
+	// transaction tweak only, not on the (label-tweaked) spend key. All
+	// addresses of a wallet normally share a single scan key, so we
+	// compute the expensive scalar multiplication once and re-use it
+	// across addresses, which roughly halves the cost of scanning a
+	// transaction for the common base+change address pair.
+	var (
+		sharedSecret *btcec.PublicKey
+		sharedForKey btcec.ModNScalar
+	)
+
 	result := make([]*btcec.PublicKey, 0, len(addresses))
 	for _, recipient := range addresses {
-		outputKey, err := outputKeyForTxTweak(
-			txTweak, k, recipient.ScanPrivateKey,
-			recipient.LabelTweakedSpendKey,
+		scanKey := recipient.ScanPrivateKey.Key
+		if sharedSecret == nil || !sharedForKey.Equals(&scanKey) {
+			// The txTweak is only input_hash·A, so we need to
+			// multiply by b_scan to get the ecdh_shared_secret.
+			//
+			// Spec: Let ecdh_shared_secret = input_hash·A·b_scan.
+			sharedSecret = ScalarMult(scanKey, &txTweak)
+			sharedForKey = scanKey
+		}
+
+		outputKey, err := outputKey(
+			*sharedSecret, k, recipient.LabelTweakedSpendKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error generating output key: "+
@@ -121,21 +141,6 @@ func TransactionOutputKeysForFilter(txTweak btcec.PublicKey,
 	}
 
 	return result, nil
-}
-
-// outputKeyForTxTweak derives the output key for a given transaction tweak,
-// output index k, scan private key, and label-tweaked spend public key.
-func outputKeyForTxTweak(txTweak btcec.PublicKey, k uint32,
-	scanPrivateKey btcec.PrivateKey,
-	labelTweakedSpendPubKey btcec.PublicKey) (*btcec.PublicKey, error) {
-
-	// The txTweak is only input_hash·A, so we need to multiply by b_scan
-	// to get the ecdh_shared_secret.
-	//
-	// Spec: Let ecdh_shared_secret = input_hash·A·b_scan.
-	sharedSecret := ScalarMult(scanPrivateKey.Key, &txTweak)
-
-	return outputKey(*sharedSecret, k, labelTweakedSpendPubKey)
 }
 
 // MatchBlock matches the given list of Taproot output keys against the given
