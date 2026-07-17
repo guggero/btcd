@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"unicode/utf8"
 
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/wire/v2"
