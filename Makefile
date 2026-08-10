@@ -22,7 +22,7 @@ DEV_TAGS := rpctest
 GOTEST_DEV = go test -v -tags=$(DEV_TAGS)
 GOTEST := go test -v
 COVER_FLAGS = -coverprofile=coverage.txt -covermode=atomic -coverpkg=$(PKG)/...
-MODULES := address bip322 btcec btcutil chaincfg chainhash psbt txscript v2transport wire
+MODULES := address bip322 btcec btcutil chaincfg chainhash descriptors psbt txscript v2transport wire
 
 # Linting uses a lot of memory, so keep it under control by limiting the number
 # of workers if requested.
