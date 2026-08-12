@@ -416,7 +416,7 @@ func TestMusig2SignCombine(t *testing.T) {
 			combinedNonce, err := AggregateNonces(pubNonces)
 			require.NoError(t, err)
 
-			finalNonceJ, _, err := computeSigningNonce(
+			finalNonceJ, _, err := ComputeSigningNonce(
 				combinedNonce, combinedKey.FinalKey, msg,
 			)
 			require.NoError(t, err)
