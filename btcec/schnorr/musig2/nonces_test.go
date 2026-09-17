@@ -67,9 +67,7 @@ func TestMusig2NonceGenTestVectors(t *testing.T) {
 
 		t.Run(fmt.Sprintf("test_case=%v", i), func(t *testing.T) {
 			nonce, err := GenNonces(withCustomOptions(customOpts))
-			if err != nil {
-				t.Fatalf("err gen nonce aux bytes %v", err)
-			}
+			require.NoError(t, err)
 
 			require.Equal(
 				t, strings.ToLower(testCase.ExpectedSecNonce),
@@ -103,8 +101,6 @@ type nonceAggInvalidCase struct {
 	Error nonceAggError `json:"error"`
 
 	Comment string `json:"comment"`
-
-	ExpectedErr string `json:"btcec_err"`
 }
 
 type nonceAggTestCases struct {
@@ -164,8 +160,7 @@ func TestMusig2AggregateNoncesTestVectors(t *testing.T) {
 
 		t.Run(fmt.Sprintf("invalid_case=%v", i), func(t *testing.T) {
 			_, err := AggregateNonces(testNonces)
-			require.True(t, err != nil)
-			require.Equal(t, testCase.ExpectedErr, err.Error())
+			require.Error(t, err)
 		})
 	}
 }

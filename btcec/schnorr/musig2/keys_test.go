@@ -266,7 +266,7 @@ type keyTweakInvalidTest struct {
 
 	TweakIndices []int `json:"tweak_indices"`
 
-	IsXOnly []bool `json:"is_only"`
+	IsXOnly []bool `json:"is_xonly"`
 
 	SignerIndex int `json:"signer_index"`
 
@@ -380,6 +380,7 @@ func TestMuSig2TweakTestVectors(t *testing.T) {
 				secNonce, privKey, combinedNonce, pubKeys,
 				msg, opts...,
 			)
+			require.NoError(t, err)
 
 			var partialSigBytes [32]byte
 			partialSig.S.PutBytesUnchecked(partialSigBytes[:])
@@ -389,6 +390,33 @@ func TestMuSig2TweakTestVectors(t *testing.T) {
 				hex.EncodeToString(mustParseHex(testCase.Expected)),
 			)
 
+		})
+	}
+
+	// Error vectors exercise the signing entry point too, not merely the
+	// lower-level key aggregation helper. An overflowing tweak must fail
+	// before returning any partial signature.
+	for _, testCase := range testCases.InvalidCases {
+		t.Run("invalid_"+testCase.Comment, func(t *testing.T) {
+			keys, err := keysFromIndices(
+				t, testCase.Indices, testCases.PubKeys,
+			)
+			require.NoError(t, err)
+			nonces := pubNoncesFromIndices(
+				t, testCase.NonceIndices, testCases.PubNonces,
+			)
+			aggregate, err := AggregateNonces(nonces)
+			require.NoError(t, err)
+			tweaks := tweaksFromIndices(
+				t, testCase.TweakIndices, testCases.Tweaks,
+				testCase.IsXOnly,
+			)
+			partial, err := Sign(
+				secNonce, privKey, aggregate, keys, msg,
+				WithTweaks(tweaks...),
+			)
+			require.ErrorIs(t, err, ErrTweakedKeyOverflows)
+			require.Nil(t, partial)
 		})
 	}
 }
