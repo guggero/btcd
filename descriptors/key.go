@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 )
 
 // Serialized public key lengths.
@@ -115,9 +116,9 @@ const (
 	keyFormXOnly
 )
 
-// descKey is a parsed descriptor public key: either a raw public key or an
-// extended (xpub/xprv) key with an optional key-origin prefix and a derivation
-// path that may contain a multipath element and a wildcard.
+// descKey is a parsed raw, extended (xpub/xprv), or BIP390 aggregate key.
+// Ordinary keys can have an origin prefix; extended and aggregate keys can have
+// a path containing a multipath element and a wildcard.
 type descKey struct {
 	// raw is the original string of the key as it appears in the
 	// descriptor.
@@ -137,11 +138,21 @@ type descKey struct {
 
 	// steps is the derivation path following the extended key.
 	steps []pathStep
+
+	// participants holds the non-nested BIP390 keys of a MuSig2 aggregate.
+	// The aggregate remains one signing key to planning and satisfaction.
+	participants []*descKey
 }
 
 // parseDescKey parses a single descriptor public key that appears in a position
 // requiring the given key form.
 func parseDescKey(s string, form keyForm) (*descKey, error) {
+	// Recognize aggregate syntax before splitting ordinary keys at '/':
+	// participants can have their own origins and derivation paths.
+	if strings.HasPrefix(s, "musig(") {
+		return parseMuSigKey(s, form)
+	}
+
 	k := &descKey{raw: s, form: form}
 
 	body := s
@@ -230,8 +241,19 @@ func parseDescKey(s string, form keyForm) (*descKey, error) {
 		return k, nil
 	}
 
-	pathParts := strings.Split(pathStr, "/")
-	k.steps = make([]pathStep, 0, len(pathParts))
+	k.steps, err = parseKeyPath(pathStr)
+	if err != nil {
+		return nil, err
+	}
+	return k, nil
+}
+
+// parseKeyPath validates the common path grammar used after an extended key or
+// a MuSig2 aggregate. Each path has at most one multipath and an optional final
+// wildcard.
+func parseKeyPath(path string) ([]pathStep, error) {
+	pathParts := strings.Split(path, "/")
+	steps := make([]pathStep, 0, len(pathParts))
 
 	multipathSeen := false
 	for i, p := range pathParts {
@@ -244,21 +266,21 @@ func parseDescKey(s string, form keyForm) (*descKey, error) {
 		case stepMultipath:
 			if multipathSeen {
 				return nil, fmt.Errorf("multiple multipath "+
-					"elements in %q", s)
+					"elements in %q", path)
 			}
 			multipathSeen = true
 
 		case stepWildcard:
 			if i != len(pathParts)-1 {
 				return nil, fmt.Errorf("wildcard must be the "+
-					"last path element in %q", s)
+					"last path element in %q", path)
 			}
 		}
 
-		k.steps = append(k.steps, step)
+		steps = append(steps, step)
 	}
 
-	return k, nil
+	return steps, nil
 }
 
 // isPubKeyLen returns whether the given byte length is a valid public key
@@ -433,6 +455,13 @@ func parseIndex(s string) (uint32, error) {
 // multipathLen returns the number of multipath sub-descriptors this key
 // contributes: the length of its multipath element, or 1 if it has none.
 func (k *descKey) multipathLen() int {
+	// Parsing has already checked that all participating paths agree.
+	for _, participant := range k.participants {
+		if n := participant.multipathLen(); n > 1 {
+			return n
+		}
+	}
+
 	for _, step := range k.steps {
 		if step.kind == stepMultipath {
 			return len(step.multipath)
@@ -464,6 +493,18 @@ func (k *descKey) definiteString(multipathIndex,
 	if slash := strings.IndexByte(rest, '/'); slash >= 0 {
 		base = rest[:slash]
 	}
+	if len(k.participants) != 0 {
+		// Resolve participant paths too, but keep their written order.
+		// Sorting belongs to key aggregation, not the lookup
+		// identifier.
+		participants := make([]string, len(k.participants))
+		for i, participant := range k.participants {
+			participants[i] = participant.definiteString(
+				multipathIndex, derivationIndex,
+			)
+		}
+		base = "musig(" + strings.Join(participants, ",") + ")"
+	}
 
 	var b strings.Builder
 	b.WriteString(origin)
@@ -494,6 +535,12 @@ func (k *descKey) definiteString(multipathIndex,
 // isWildcard returns whether the key has a wildcard element and is therefore
 // ranged.
 func (k *descKey) isWildcard() bool {
+	for _, participant := range k.participants {
+		if participant.isWildcard() {
+			return true
+		}
+	}
+
 	for _, step := range k.steps {
 		if step.kind == stepWildcard {
 			return true
@@ -515,6 +562,25 @@ func (k *descKey) derivePub(
 	}
 
 	cur := k.xpub
+	if len(k.participants) != 0 {
+		pub, err := k.aggregatePub(multipathIndex, derivationIndex)
+		if err != nil {
+			return nil, err
+		}
+		if len(k.steps) == 0 {
+			return pub, nil
+		}
+
+		// BIP328 derives from the full aggregate point, before any
+		// x-only normalization. Network versions affect serialization,
+		// not CKDpub, and this synthetic xpub never leaves the
+		// resolver.
+		cur, err = hdkeychain.NewMuSig2Key(pub, &chaincfg.MainNetParams)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	for _, step := range k.steps {
 		var index pathIndex
 		switch step.kind {

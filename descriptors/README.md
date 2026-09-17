@@ -1,6 +1,6 @@
 # descriptors
 
-Output script descriptors as specified in BIP380 through BIP389: parse a
+Output script descriptors as specified in BIP380 through BIP390: parse a
 descriptor, derive its addresses and scripts, estimate its spending weight, lift
 it to a semantic policy, and plan and complete a spend.
 
@@ -23,6 +23,20 @@ wildcards, and BIP389 `<a;b;…>` multipath elements. Which serialization is val
 where follows BIP380 to BIP386: uncompressed keys in the pre-segwit positions
 only, x-only inside `tr()` only.
 
+BIP390 `musig(KEY,...)` is supported for the internal key and script keys of
+`tr()`. Participants are derived, sorted by compressed public key, and aggregated
+with BIP327. Duplicate participants are allowed. An aggregate derivation path
+uses BIP328 and requires fixed extended-key participants; hardened aggregate
+derivation is forbidden. Participant and aggregate multipaths are supported
+separately. Nested `musig()` and origins around the aggregate are rejected.
+
+`Keys`, `Lift`, and signing lookups treat the whole `musig()` expression as one
+key. Lookup identifiers retain participant order and resolve all paths. Callers
+coordinate MuSig2 sessions and supply a finished Schnorr signature, not partial
+signatures. `hdkeychain.DeriveWithTweak` exposes each plain BIP328 tweak for
+signers; key-path signing must also apply the final BIP341 x-only TapTweak.
+`rawtr()` and `sp()` remain unsupported descriptor types.
+
 **API**: `NewDescriptor`, `String` (with checksum), `Keys`, `DescType`,
 `MultipathLen`, `AddressAt`, `ScriptCodeAt`, `MaxWeightToSatisfy`, `Lift`, and
 `PlanAt` returning a `Plan` with `SatisfactionWeight`, `ScriptSigSize`,
@@ -34,7 +48,6 @@ only, x-only inside `tr()` only.
 |------------|-----|-----|
 | `combo()` | 384 | Stands for two or four output scripts; the API is one script per descriptor |
 | `raw()`, `addr()` | 385 | No keys and no satisfaction, so most of the API is meaningless for them |
-| `musig()` | 390 | Needs BIP327 key aggregation and BIP328 derivation |
 | `rawtr()`, `sp()` | - | Not implemented |
 
 Also absent, by design: no policy-to-miniscript compiler (rust-miniscript has

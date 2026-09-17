@@ -2,6 +2,11 @@ module github.com/btcsuite/btcd/descriptors
 
 go 1.25.0
 
+// Temporary until BIP328 derivation and strict HD version lookup are released.
+replace github.com/btcsuite/btcd/btcutil/v2 => ../btcutil
+
+replace github.com/btcsuite/btcd/chaincfg/v2 => ../chaincfg
+
 require (
 	github.com/btcsuite/btcd/address/v2 v2.0.0
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0
