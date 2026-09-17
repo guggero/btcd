@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	testVectorBaseDir = "data"
+	testVectorBaseDir = "testdata"
 )
 
 func mustParseHex(str string) []byte {
