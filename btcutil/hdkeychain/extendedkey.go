@@ -57,18 +57,21 @@ const (
 var (
 	// ErrDeriveHardFromPublic describes an error in which the caller
 	// attempted to derive a hardened extended key from a public key.
-	ErrDeriveHardFromPublic = errors.New("cannot derive a hardened key " +
-		"from a public key")
+	ErrDeriveHardFromPublic = errors.New(
+		"cannot derive a hardened key from a public key",
+	)
 
 	// ErrDeriveBeyondMaxDepth describes an error in which the caller
 	// has attempted to derive more than 255 keys from a root key.
-	ErrDeriveBeyondMaxDepth = errors.New("cannot derive a key with more than " +
-		"255 indices in its path")
+	ErrDeriveBeyondMaxDepth = errors.New(
+		"cannot derive a key with more than 255 indices in its path",
+	)
 
 	// ErrNotPrivExtKey describes an error in which the caller attempted
 	// to extract a private key from a public extended key.
-	ErrNotPrivExtKey = errors.New("unable to create private keys from a " +
-		"public extended key")
+	ErrNotPrivExtKey = errors.New(
+		"unable to create private keys from a public extended key",
+	)
 
 	// ErrInvalidChild describes an unusable child derivation, including
 	// an out-of-range intermediate scalar, a zero final private scalar,
@@ -77,7 +80,9 @@ var (
 	//
 	// Final cancellation requires a particular HMAC output, making it
 	// impractical to exercise with natural derivation vectors.
-	ErrInvalidChild = errors.New("the extended key at this index is invalid")
+	ErrInvalidChild = errors.New(
+		"the extended key at this index is invalid",
+	)
 
 	// ErrUnusableSeed describes an error in which the provided seed is not
 	// usable due to the derived key falling outside of the valid range for
@@ -96,13 +101,24 @@ var (
 
 	// ErrInvalidKeyLen describes an error in which the provided serialized
 	// key is not the expected length.
-	ErrInvalidKeyLen = errors.New("the provided serialized extended key " +
-		"length is invalid")
-)
+	ErrInvalidKeyLen = errors.New(
+		"the provided serialized extended key length is invalid",
+	)
 
-// masterKey is the master key used along with a random seed used to generate
-// the master node in the hierarchical tree.
-var masterKey = []byte("Bitcoin seed")
+	// ErrInvalidRootMetadata indicates a depth-zero key with a nonzero
+	// parent fingerprint or child number, contrary to BIP32.
+	ErrInvalidRootMetadata = errors.New(
+		"invalid extended root key metadata",
+	)
+
+	// ErrInvalidKeyVersion indicates an unregistered version or a version
+	// whose public/private kind does not match the serialized key data.
+	ErrInvalidKeyVersion = errors.New("invalid extended key version")
+
+	// masterKey is the master key used along with a random seed used to
+	// generate the master node in the hierarchical tree.
+	masterKey = []byte("Bitcoin seed")
+)
 
 // hmacSHA512 computes the HMAC used for child derivation. Tests replace this
 // function to reach cancellation results that natural vectors cannot exercise.
@@ -727,7 +743,10 @@ func NewMaster(seed []byte, net *chaincfg.Params) (*ExtendedKey, error) {
 }
 
 // NewKeyFromString returns a new extended key instance from a base58-encoded
-// extended key.
+// extended key. It checks the length, checksum and key material, but preserves
+// the legacy behavior of accepting arbitrary version bytes and root metadata.
+// The key data, not the version, determines whether the key is private.
+// Use NewKeyFromStringStrict to also validate the version and root metadata.
 func NewKeyFromString(key string) (*ExtendedKey, error) {
 	// The base58-decoded extended key must consist of a serialized payload
 	// plus an additional 4 bytes for the checksum.
@@ -778,6 +797,46 @@ func NewKeyFromString(key string) (*ExtendedKey, error) {
 
 	return NewExtendedKey(version, keyData, chainCode, parentFP, depth,
 		childNum, isPrivate), nil
+}
+
+// NewKeyFromStringStrict parses an extended key like NewKeyFromString, with
+// additional BIP32 encoding checks. A depth-zero key must have a zero parent
+// fingerprint and child number, otherwise ErrInvalidRootMetadata is returned.
+// The version must be registered with chaincfg and match the public/private
+// key data, otherwise ErrInvalidKeyVersion is returned.
+//
+// Custom versions can be registered with chaincfg.RegisterHDKeyID. Bitcoin's
+// SLIP-0132 pairs can be enabled with chaincfg.RegisterSLIP132KeyIDs. Complete
+// registration before concurrent parsing or other registry lookups. This
+// function never registers versions, rewrites them or selects an address type.
+func NewKeyFromStringStrict(key string) (*ExtendedKey, error) {
+	// Keep checksum, scalar and curve validation on the legacy decoding
+	// path so both entry points agree on the underlying key material.
+	parsed, err := NewKeyFromString(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Roots have no parent or child index. This is independent of version
+	// registration, so SLIP-0132 keys must satisfy the same metadata rules.
+	if parsed.depth == 0 && (parsed.childNum != 0 ||
+		binary.BigEndian.Uint32(parsed.parentFP) != 0) {
+
+		return nil, ErrInvalidRootMetadata
+	}
+
+	// Validate the encoding's kind using the registered version pair, not
+	// its human-readable Base58 prefix. Private-to-public conversion uses
+	// this same registry in Neuter.
+	validVersion := chaincfg.IsHDPublicKeyID(parsed.version)
+	if parsed.isPrivate {
+		_, err := chaincfg.HDPrivateKeyToPublicKeyID(parsed.version)
+		validVersion = err == nil
+	}
+	if !validVersion {
+		return nil, ErrInvalidKeyVersion
+	}
+	return parsed, nil
 }
 
 // GenerateSeed returns a cryptographically secure random seed that can be used
