@@ -308,93 +308,11 @@ func (k *ExtendedKey) derive(i uint32, tweak *[32]byte) (*ExtendedKey, error) {
 	il := ilr[:len(ilr)/2]
 	childChainCode := ilr[len(ilr)/2:]
 
-	// Both derived public or private keys rely on treating the left 32-byte
-	// sequence calculated above (Il) as a 256-bit integer that must be
-	// within the valid range for a secp256k1 private key.  There is a small
-	// chance (< 1 in 2^127) this condition will not hold, and in that case,
-	// a child extended key can't be created for this index and the caller
-	// should simply increment to the next index.
-	var ilNum btcec.ModNScalar
-	if overflow := ilNum.SetByteSlice(il); overflow {
-		return nil, ErrInvalidChild
-	}
-
-	// The algorithm used to derive the child key depends on whether or not
-	// a private or public child is being derived.
-	//
-	// For private children:
-	//   childKey = parse256(Il) + parentKey
-	//
-	// For public children:
-	//   childKey = serP(point(parse256(Il)) + parentKey)
-	var isPrivate bool
-	var childKey []byte
-	if k.isPrivate {
-		// Case #1 or #2.
-		// Add the parent private key to the intermediate private key to
-		// derive the final child key.
-		//
-		// childKey = parse256(Il) + parenKey
-		var keyNum btcec.ModNScalar
-		if overflow := keyNum.SetByteSlice(k.key); overflow {
-			return nil, ErrInvalidChild
-		}
-
-		childKeyBytes := ilNum.Add(&keyNum).Bytes()
-		childKey = childKeyBytes[:]
-
-		// Strip leading zeroes from childKey, to match the expectation
-		// as the old big.Int usage in this area of the codebase.
-		for len(childKey) > 0 && childKey[0] == 0x00 {
-			childKey = childKey[1:]
-		}
-
-		isPrivate = true
-	} else {
-		// Case #3.
-		// Calculate the corresponding intermediate public key for thek
-		// intermediate private key: ilJ = ilScalar*G
-		var (
-			ilScalar btcec.ModNScalar
-			ilJ      btcec.JacobianPoint
-		)
-		if overflow := ilScalar.SetByteSlice(il); overflow {
-			return nil, ErrInvalidChild
-		}
-		btcec.ScalarBaseMultNonConst(&ilScalar, &ilJ)
-
-		if (ilJ.X.IsZero() && ilJ.Y.IsZero()) || ilJ.Z.IsZero() {
-			return nil, ErrInvalidChild
-		}
-
-		// Convert the serialized compressed parent public key into X
-		// and Y coordinates so it can be added to the intermediate
-		// public key.
-		pubKey, err := btcec.ParsePubKey(k.key)
-		if err != nil {
-			return nil, err
-		}
-
-		// Convert the public key to jacobian coordinates, as that's
-		// what our main add/double methods use.
-		var pubKeyJ btcec.JacobianPoint
-		pubKey.AsJacobian(&pubKeyJ)
-
-		// Add the intermediate public key to the parent public key to
-		// derive the final child key.
-		//
-		// childKey = serP(point(parse256(Il)) + parentKey)
-		var childKeyPubJ btcec.JacobianPoint
-		btcec.AddNonConst(&ilJ, &pubKeyJ, &childKeyPubJ)
-
-		// Convert the new child public key back to affine coordinates
-		// so we can serialize it in compressed format.
-		childKeyPubJ.ToAffine()
-		childKeyPub := btcec.NewPublicKey(
-			&childKeyPubJ.X, &childKeyPubJ.Y,
-		)
-
-		childKey = childKeyPub.SerializeCompressed()
+	// Apply the tweak and reject an invalid final scalar or point before
+	// exposing either the derived key or the optional signing tweak.
+	childKey, err := k.deriveChildKey(il)
+	if err != nil {
+		return nil, err
 	}
 
 	// The fingerprint of the parent for the derived child is the first 4
@@ -403,8 +321,10 @@ func (k *ExtendedKey) derive(i uint32, tweak *[32]byte) (*ExtendedKey, error) {
 	if tweak != nil {
 		copy(tweak[:], il)
 	}
-	return NewExtendedKey(k.version, childKey, childChainCode, parentFP,
-		k.depth+1, i, isPrivate), nil
+	return NewExtendedKey(
+		k.version, childKey, childChainCode, parentFP, k.depth+1, i,
+		k.isPrivate,
+	), nil
 }
 
 // Returns true if this key was affected by the BIP-32 issue in the Child

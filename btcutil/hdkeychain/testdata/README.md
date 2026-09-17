@@ -23,3 +23,10 @@ can be enabled with `chaincfg.RegisterSLIP132KeyIDs` before concurrent use.
 
 `NewKeyFromStringStrict` rejects all 16 invalid keys. Custom version
 bytes must be registered with `chaincfg.RegisterHDKeyID` before parsing.
+
+`bip32_tweaks.json` contains additional, locally authored arithmetic boundary
+cases, not official BIP vectors. The parent private scalar is one; `tweak` is
+the 32-byte I_L supplied to CKD's addition step, `private` is the expected child
+scalar (without leading zero bytes), and `invalid` requires `ErrInvalidChild`.
+These test zero tweaks, cancellation and the group-order boundary for both
+private and public derivation without needing infeasible HMAC preimages.
