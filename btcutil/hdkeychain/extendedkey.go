@@ -226,6 +226,13 @@ func (k *ExtendedKey) ChainCode() []byte {
 // returned if this should occur, and the caller is expected to ignore the
 // invalid child and simply increment to the next index.
 func (k *ExtendedKey) Derive(i uint32) (*ExtendedKey, error) {
+	return k.derive(i, nil)
+}
+
+// derive performs BIP32 child derivation and, on success, optionally copies the
+// raw I_L tweak into tweak. Keeping both APIs on this path prevents public key
+// derivation and the tweaks used by signers from disagreeing.
+func (k *ExtendedKey) derive(i uint32, tweak *[32]byte) (*ExtendedKey, error) {
 	// Prevent derivation of children beyond the max allowed depth.
 	if k.depth == maxUint8 {
 		return nil, ErrDeriveBeyondMaxDepth
@@ -377,6 +384,9 @@ func (k *ExtendedKey) Derive(i uint32) (*ExtendedKey, error) {
 	// The fingerprint of the parent for the derived child is the first 4
 	// bytes of the RIPEMD160(SHA256(parentPubKey)).
 	parentFP := address.Hash160(k.pubKeyBytes())[:4]
+	if tweak != nil {
+		copy(tweak[:], il)
+	}
 	return NewExtendedKey(k.version, childKey, childChainCode, parentFP,
 		k.depth+1, i, isPrivate), nil
 }
