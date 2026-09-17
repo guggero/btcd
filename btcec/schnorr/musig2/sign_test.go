@@ -146,9 +146,9 @@ func TestMusig2SignVerify(t *testing.T) {
 			copy(secNonce[:], mustParseHex(testCases.PrivNonces[0]))
 
 			partialSig, err := Sign(
-				secNonce, privKey, combinedNonce, pubKeys,
-				msg,
+				secNonce, privKey, combinedNonce, pubKeys, msg,
 			)
+			require.NoError(t, err)
 
 			var partialSigBytes [32]byte
 			partialSig.S.PutBytesUnchecked(partialSigBytes[:])
@@ -221,21 +221,25 @@ func TestMusig2SignVerify(t *testing.T) {
 			require.NoError(t, err)
 
 			var msg [32]byte
-			copy(
-				msg[:],
-				mustParseHex(testCases.Msgs[testCase.MsgIndex]),
-			)
+			copy(msg[:], mustParseHex(
+				testCases.Msgs[testCase.MsgIndex],
+			))
 
 			signerNonce := pubNonces[testCase.SignerIndex]
 			signerKey := pubKeys[testCase.SignerIndex]
 
 			var partialSig PartialSignature
-			err = partialSig.Decode(
-				bytes.NewReader(mustParseHex(testCase.Sig)),
-			)
-			if err != nil && strings.Contains(testCase.Comment, "group size") {
+			err = partialSig.Decode(bytes.NewReader(
+				mustParseHex(testCase.Sig),
+			))
+			if err != nil && strings.Contains(
+				testCase.Comment, "group size",
+			) {
+
 				require.ErrorIs(t, err, ErrPartialSigInvalid)
+				return
 			}
+			require.NoError(t, err)
 
 			err = verifyPartialSig(
 				&partialSig, signerNonce, combinedNonce,
@@ -301,6 +305,14 @@ type sigCombineTestVectors struct {
 	Msg string `json:"msg"`
 
 	ValidCases []sigCombineValidCase `json:"valid_test_cases"`
+
+	InvalidCases []struct {
+		PSigIndices []int `json:"psig_indices"`
+		Error       struct {
+			Signer int `json:"signer"`
+		} `json:"error"`
+		Comment string `json:"comment"`
+	} `json:"error_test_cases"`
 }
 
 func pSigsFromIndices(t *testing.T, sigs []string, indices []int) []*PartialSignature {
@@ -399,6 +411,7 @@ func TestMusig2SignCombine(t *testing.T) {
 			finalNonceJ, _, err := computeSigningNonce(
 				combinedNonce, combinedKey.FinalKey, msg,
 			)
+			require.NoError(t, err)
 
 			finalNonceJ.ToAffine()
 			finalNonce := btcec.NewPublicKey(
@@ -412,6 +425,26 @@ func TestMusig2SignCombine(t *testing.T) {
 				strings.ToLower(testCase.Expected),
 				hex.EncodeToString(combinedSig.Serialize()),
 			)
+		})
+	}
+
+	// The API accepts decoded scalars. Invalid wire contributions must be
+	// rejected at decoding, before they can reach signature combination.
+	for _, testCase := range testCases.InvalidCases {
+		t.Run("invalid_"+testCase.Comment, func(t *testing.T) {
+			for signer, index := range testCase.PSigIndices {
+				var partial PartialSignature
+				err := partial.Decode(bytes.NewReader(
+					mustParseHex(testCases.Psigs[index]),
+				))
+				if signer == testCase.Error.Signer {
+					require.ErrorIs(
+						t, err, ErrPartialSigInvalid,
+					)
+				} else {
+					require.NoError(t, err)
+				}
+			}
 		})
 	}
 }
