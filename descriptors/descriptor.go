@@ -801,7 +801,8 @@ func (d *Descriptor) MultipathLen() int {
 }
 
 // Keys returns all keys present in the descriptor, in the order they appear in
-// the descriptor string.
+// the descriptor string. A BIP390 musig() expression is one aggregate key,
+// including its participants and optional path, not one entry per participant.
 func (d *Descriptor) Keys() []string {
 	result := make([]string, len(d.keys))
 	for i, k := range d.keys {
