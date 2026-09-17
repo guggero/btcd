@@ -5,6 +5,7 @@
 package chaincfg
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -1238,6 +1239,24 @@ func RegisterHDKeyID(hdPublicKeyID []byte, hdPrivateKeyID []byte) error {
 	hdPrivToPubKeyIDs[keyID] = hdPublicKeyID
 
 	return nil
+}
+
+// IsHDPublicKeyID reports whether id is a registered extended public key
+// version. Built-in networks and pairs added with RegisterHDKeyID are accepted.
+// As with the other registry lookups, registration must finish before
+// concurrent lookups begin.
+func IsHDPublicKeyID(id []byte) bool {
+	// Consult the existing registry instead of a separate index that could
+	// become stale when a private-to-public mapping is replaced.
+	if len(id) != 4 {
+		return false
+	}
+	for _, publicID := range hdPrivToPubKeyIDs {
+		if bytes.Equal(id, publicID) {
+			return true
+		}
+	}
+	return false
 }
 
 // HDPrivateKeyToPublicKeyID accepts a private hierarchical deterministic

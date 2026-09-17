@@ -19,6 +19,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	secp_ecdsa "github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/stretchr/testify/require"
 )
 
 // TestBIP0032Vectors tests the vectors provided by [BIP32] to ensure the
@@ -860,11 +861,9 @@ func TestErrors(t *testing.T) {
 
 	// NewKeyFromString failure tests.
 	tests := []struct {
-		name      string
-		key       string
-		err       error
-		neuter    bool
-		neuterErr error
+		name string
+		key  string
+		err  error
 	}{
 		{
 			name: "invalid key length",
@@ -873,41 +872,39 @@ func TestErrors(t *testing.T) {
 		},
 		{
 			name: "bad checksum",
-			key:  "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EBygr15",
-			err:  ErrBadChecksum,
+			key: "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE" +
+				"8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265" +
+				"TMg7usUDFdp6W1EBygr15",
+			err: ErrBadChecksum,
 		},
 		{
 			name: "pubkey not on curve",
-			key:  "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ1hr9Rwbk95YadvBkQXxzHBSngB8ndpW6QH7zhhsXZ2jHyZqPjk",
-			err:  secp_ecdsa.ErrPubKeyNotOnCurve,
+			key: "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE" +
+				"8NqtwybGhePY2gZ1hr9Rwbk95YadvBkQXxzHBSngB8nd" +
+				"pW6QH7zhhsXZ2jHyZqPjk",
+			err: secp_ecdsa.ErrPubKeyNotOnCurve,
 		},
 		{
-			name:      "unsupported version",
-			key:       "xbad4LfUL9eKmA66w2GJdVMqhvDmYGJpTGjWRAtjHqoUY17sGaymoMV9Cm3ocn9Ud6Hh2vLFVC7KSKCRVVrqc6dsEdsTjRV1WUmkK85YEUujAPX",
-			err:       nil,
-			neuter:    true,
-			neuterErr: chaincfg.ErrUnknownHDKeyID,
+			name: "unsupported version",
+			key: "xbad4LfUL9eKmA66w2GJdVMqhvDmYGJpTGjWRAtjHqoUY1" +
+				"7sGaymoMV9Cm3ocn9Ud6Hh2vLFVC7KSKCRVVrqc6dsEd" +
+				"sTjRV1WUmkK85YEUujAPX",
+			err: nil,
 		},
 	}
 
-	for i, test := range tests {
-		extKey, err := NewKeyFromString(test.key)
-		if !errors.Is(err, test.err) {
-			t.Errorf("NewKeyFromString #%d (%s): mismatched error "+
-				"-- got: %v, want: %v", i, test.name, err,
-				test.err)
+	for _, test := range tests {
+		key, err := NewKeyFromString(test.key)
+		if test.err != nil {
+			require.ErrorIs(t, err, test.err, test.name)
 			continue
 		}
 
-		if test.neuter {
-			_, err := extKey.Neuter()
-			if !errors.Is(err, test.neuterErr) {
-				t.Errorf("Neuter #%d (%s): mismatched error "+
-					"-- got: %v, want: %v", i, test.name,
-					err, test.neuterErr)
-				continue
-			}
-		}
+		// The legacy decoder accepts an unknown version, but Neuter
+		// still needs a registered private-to-public version mapping.
+		require.NoError(t, err)
+		_, err = key.Neuter()
+		require.ErrorIs(t, err, chaincfg.ErrUnknownHDKeyID)
 	}
 }
 
