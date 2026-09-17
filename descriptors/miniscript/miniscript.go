@@ -1072,7 +1072,8 @@ func createAST(miniscript string, ctx Context) (*AST, error) {
 	// than there are tokens, so we pre-size it to avoid growth
 	// reallocations.
 	stack := stack{elements: make([]*AST, 0, len(tokens))}
-	for i, token := range tokens {
+	for i := 0; i < len(tokens); i++ {
+		token := tokens[i]
 		switch token {
 		case "(":
 			// Exclude invalid sequences, which cannot appear in
@@ -1107,6 +1108,26 @@ func createAST(miniscript string, ctx Context) (*AST, error) {
 			if i > 0 && tokens[i-1] == ")" {
 				return nil, fmt.Errorf("the sequence %s%s is "+
 					"invalid", tokens[i-1], token)
+			}
+
+			// A MuSig2 expression denotes one key, not a miniscript
+			// subtree. Retain its spelling for the caller's key
+			// resolver, only in a tapscript key argument.
+			if token == "musig" && i+1 < len(tokens) &&
+				tokens[i+1] == "(" {
+
+				parent := stack.top()
+				if ctx != P2TR || !isKeyArgument(parent) {
+					return nil, errors.New(
+						"musig() requires a tapscript " +
+							"key argument",
+					)
+				}
+				var err error
+				token, i, err = consumeMuSigKey(tokens, i)
+				if err != nil {
+					return nil, err
+				}
 			}
 
 			// Split wrappers from identifier if they exist, e.g. in
@@ -1156,6 +1177,57 @@ func createAST(miniscript string, ctx Context) (*AST, error) {
 	}
 
 	return stack.top(), nil
+}
+
+// isKeyArgument reports whether the next argument of parent is a public key.
+// Thresholds and expression arguments must never accept opaque key syntax.
+func isKeyArgument(parent *AST) bool {
+	if parent == nil {
+		return false
+	}
+	switch parent.identifier {
+	case f_pk, f_pkh, f_pk_k, f_pk_h:
+		return len(parent.args) == 0
+
+	case f_multi_a, f_sortedmulti_a:
+		return len(parent.args) >= 1
+
+	default:
+		return false
+	}
+}
+
+// consumeMuSigKey collects an opaque BIP390 key and optional derivation suffix,
+// returning the last consumed token's index. It validates flat, nonempty
+// participant syntax without recursing; actual keys and paths are the key
+// resolver's responsibility, as for ordinary symbolic miniscript keys.
+func consumeMuSigKey(tokens []string, start int) (string, int, error) {
+	// BIP390 forbids nesting. Alternating participant and comma tokens
+	// also rejects empty participants without swallowing an outer argument.
+	wantKey := true
+	for end := start + 2; end < len(tokens); end++ {
+		token := tokens[end]
+		if token == ")" {
+			if wantKey {
+				return "", 0, errors.New(
+					"empty musig() participant",
+				)
+			}
+			if end+1 < len(tokens) &&
+				strings.HasPrefix(tokens[end+1], "/") {
+
+				end++
+			}
+			return strings.Join(tokens[start:end+1], ""), end, nil
+		}
+		if token == "(" || (token == ",") == wantKey {
+			return "", 0, errors.New(
+				"invalid or nested musig() participant",
+			)
+		}
+		wantKey = !wantKey
+	}
+	return "", 0, errors.New("unterminated musig() key")
 }
 
 // argCheck checks that each identifier is a known miniscript identifier and
