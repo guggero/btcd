@@ -2,6 +2,9 @@ module github.com/btcsuite/btcd/btcutil/v2
 
 go 1.25
 
+// Temporary until the strict HD key version lookup has a chaincfg release.
+replace github.com/btcsuite/btcd/chaincfg/v2 => ../chaincfg
+
 require (
 	github.com/aead/siphash v1.0.1
 	github.com/btcsuite/btcd/address/v2 v2.0.0
