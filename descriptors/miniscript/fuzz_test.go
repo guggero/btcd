@@ -39,6 +39,8 @@ var (
 		"0",
 		"1",
 		"pk(A)",
+		"pk(musig(A,B)/<0;1>/*)",
+		"multi_a(1,musig(A/0,B/1),C)",
 		"pkh(A)",
 		"pk_k(A)",
 		"pk_h(A)",
