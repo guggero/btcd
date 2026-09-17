@@ -212,26 +212,53 @@ func TestBIP32JSONVectors(t *testing.T) {
 			pub, err := key.Neuter()
 			require.NoError(t, err)
 			require.Equal(t, vector.Xpub, pub.String())
+
+			// Both parsers must preserve the exact encoding for
+			// every valid private and public key, including leading
+			// zeros.
+			keys := []string{
+				vector.Xprv, vector.Xpub,
+			}
+			funcs := []func(string) (*ExtendedKey, error){
+				NewKeyFromString, NewKeyFromStringStrict,
+			}
+			for _, encoded := range keys {
+				for _, parse := range funcs {
+					parsed, err := parse(encoded)
+					require.NoError(t, err)
+					require.Equal(
+						t, encoded, parsed.String(),
+					)
+				}
+			}
 		})
 	}
 
-	// The existing general-purpose parser accepts arbitrary version bytes
-	// and root metadata. Preserve and explicitly identify those
-	// pre-existing differences; the other invalid vectors must fail during
-	// decoding.
+	// Preserve the legacy parser's eight metadata/version exceptions. These
+	// cases remain in the official fixture and explicitly test
+	// compatibility rather than being skipped or mistaken for strict BIP32
+	// compliance.
 	for _, vector := range vectors.Invalid {
 		t.Run(vector.Reason+"/"+vector.Key[:4], func(t *testing.T) {
 			_, err := NewKeyFromString(vector.Key)
-			legacyAccepted := strings.Contains(vector.Reason, "version") ||
-				strings.HasPrefix(vector.Reason, "zero depth")
-			if legacyAccepted {
-				require.NoError(
-					t, err,
-					"documented legacy parser behavior",
-				)
-			} else {
+			switch vector.Reason {
+			case "pubkey version / prvkey mismatch",
+				"prvkey version / pubkey mismatch",
+				"unknown extended key version",
+				"zero depth with non-zero parent fingerprint",
+				"zero depth with non-zero index":
+
+				require.NoError(t, err)
+
+			default:
 				require.Error(t, err)
 			}
+
+			// Strict parsing rejects all 16 cases, even when the
+			// legacy decoder accepts the key material itself.
+			parsed, err := NewKeyFromStringStrict(vector.Key)
+			require.Error(t, err)
+			require.Nil(t, parsed)
 		})
 	}
 }
