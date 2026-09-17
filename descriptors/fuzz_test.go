@@ -37,6 +37,9 @@ var (
 		"sh(wsh(pkh(" + basicTestXpub + "/*)))",
 		"wsh(multi(1,02" + gPointX + "))",
 		"tr(" + gPointX + ")",
+		"tr(musig(02" + gPointX + ",03" + gPointX + "))",
+		"tr(musig(" + basicTestXpub + ")/<0;1>/*)",
+		"tr(" + gPointX + ",pk(musig(02" + gPointX + ")))",
 		"tr(" + gPointX + ",pk(" + gPointX + "))",
 		"tr(" + gPointX + ",{pk(" + gPointX + "),pk(" + gPointX + ")})",
 	}

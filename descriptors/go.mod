@@ -1,6 +1,11 @@
 module github.com/btcsuite/btcd/descriptors
 
-go 1.26.9
+go 1.26.10
+
+// Temporary until BIP328 derivation and strict HD version lookup are released.
+replace github.com/btcsuite/btcd/btcutil/v2 => ../btcutil
+
+replace github.com/btcsuite/btcd/chaincfg/v2 => ../chaincfg
 
 require (
 	github.com/btcsuite/btcd/address/v2 v2.0.0
@@ -17,7 +22,6 @@ require (
 	github.com/btcsuite/btclog v1.0.0 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
-	github.com/kcalvinalvin/anet v0.0.0-20251112173137-d8ddc1f6dbee // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect

@@ -80,6 +80,8 @@ type SemanticPolicy struct {
 
 // Lift converts this descriptor into its abstract semantic policy. It mirrors
 // rust-miniscript's Descriptor::lift.
+// A musig() key remains one key requirement; the policy does not expand its
+// off-chain participant protocol into an on-chain threshold.
 func (d *Descriptor) Lift() (*SemanticPolicy, error) {
 	return d.liftNode(d.root)
 }

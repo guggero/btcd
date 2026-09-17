@@ -63,6 +63,8 @@ var (
 // strings are definite descriptor key expressions: origins are retained,
 // multipath choices and wildcards are resolved, and hardened steps use "'".
 // Leaf hashes use forward-byte-order hex. Callbacks must not mutate arguments.
+// A musig() expression identifies one aggregate key and requires one finished
+// Schnorr signature. This package does not coordinate MuSig2 signing sessions.
 type Assets struct {
 	// LookupEcdsaSig reports whether an ECDSA signature is available for
 	// the given public key.
