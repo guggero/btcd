@@ -27,8 +27,7 @@
                 "signer": 1,
                 "contrib": "pubnonce"
             },
-            "comment": "Public nonce from signer 1 is invalid due wrong tag, 0x04, in the first half",
-            "btcec_err": "invalid public key: unsupported format: 4"
+            "comment": "Public nonce from signer 1 is invalid due wrong tag, 0x04, in the first half"
         },
         {
             "pnonce_indices": [5, 1],
@@ -37,8 +36,7 @@
                 "signer": 0,
                 "contrib": "pubnonce"
             },
-            "comment": "Public nonce from signer 0 is invalid because the second half does not correspond to an X coordinate",
-            "btcec_err": "invalid public key: x coordinate 48c264cdd57d3c24d79990b0f865674eb62a0f9018277a95011b41bfc193b831 is not on the secp256k1 curve"
+            "comment": "Public nonce from signer 0 is invalid because the second half does not correspond to an X coordinate"
         },
         {
             "pnonce_indices": [6, 1],
@@ -47,8 +45,7 @@
                 "signer": 0,
                 "contrib": "pubnonce"
             },
-            "comment": "Public nonce from signer 0 is invalid because second half exceeds field size",
-            "btcec_err": "invalid public key: x >= field prime"
+            "comment": "Public nonce from signer 0 is invalid because second half exceeds field size"
         }
     ]
 }

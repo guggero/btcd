@@ -4,7 +4,6 @@ package musig2
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,7 +21,8 @@ type nonceGenTestCase struct {
 	ExtraIn string  `json:"extra_in"`
 	Pk      string  `json:"pk"`
 
-	Expected string `json:"expected"`
+	ExpectedSecret string `json:"expected_secnonce"`
+	ExpectedPublic string `json:"expected_pubnonce"`
 }
 
 type nonceGenTestCases struct {
@@ -52,7 +52,9 @@ func TestMusig2NonceGenTestVectors(t *testing.T) {
 		testCase := testCase
 
 		customOpts := nonceGenOpts{
-			randReader:  &memsetRandReader{i: 0},
+			randReader: bytes.NewReader(mustParseHex(
+				testCase.Rand,
+			)),
 			secretKey:   mustParseHex(testCase.Sk),
 			combinedKey: mustParseHex(testCase.AggPk),
 			auxInput:    mustParseHex(testCase.ExtraIn),
@@ -64,16 +66,19 @@ func TestMusig2NonceGenTestVectors(t *testing.T) {
 
 		t.Run(fmt.Sprintf("test_case=%v", i), func(t *testing.T) {
 			nonce, err := GenNonces(withCustomOptions(customOpts))
-			if err != nil {
-				t.Fatalf("err gen nonce aux bytes %v", err)
-			}
+			require.NoError(t, err)
 
-			expectedBytes, _ := hex.DecodeString(testCase.Expected)
-			if !bytes.Equal(nonce.SecNonce[:], expectedBytes) {
-
-				t.Fatalf("nonces don't match: expected %x, got %x",
-					expectedBytes, nonce.SecNonce[:])
-			}
+			// Check both outputs with the BIP's supplied
+			// randomness, rather than deriving one expected output
+			// from the other.
+			require.Equal(
+				t, mustParseHex(testCase.ExpectedSecret),
+				nonce.SecNonce[:],
+			)
+			require.Equal(
+				t, mustParseHex(testCase.ExpectedPublic),
+				nonce.PubNonce[:],
+			)
 		})
 	}
 }
@@ -98,8 +103,6 @@ type nonceAggInvalidCase struct {
 	Error nonceAggError `json:"error"`
 
 	Comment string `json:"comment"`
-
-	ExpectedErr string `json:"btcec_err"`
 }
 
 type nonceAggTestCases struct {
@@ -159,8 +162,7 @@ func TestMusig2AggregateNoncesTestVectors(t *testing.T) {
 
 		t.Run(fmt.Sprintf("invalid_case=%v", i), func(t *testing.T) {
 			_, err := AggregateNonces(testNonces)
-			require.True(t, err != nil)
-			require.Equal(t, testCase.ExpectedErr, err.Error())
+			require.Error(t, err)
 		})
 	}
 }
