@@ -28,6 +28,7 @@ require (
 
 // TODO(guggero): Remove this once the BIP-322 PR is merged.
 replace (
+	github.com/btcsuite/btcd/btcec/v2 => ../btcec
 	github.com/btcsuite/btcd/psbt/v2 => ../psbt
 	github.com/btcsuite/btcd/txscript/v2 => ../txscript
 	github.com/btcsuite/btcd/wire/v2 => ../wire
