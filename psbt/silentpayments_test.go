@@ -403,7 +403,9 @@ func TestSilentPaymentVectorsMalformedFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			vector := findVector(t, vectors.Invalid, tc.descPrefix)
+			vector := findSpVector(
+				t, vectors.Invalid, tc.descPrefix,
+			)
 
 			psbtBytes, err := base64.StdEncoding.DecodeString(
 				vector.Psbt,
@@ -537,9 +539,9 @@ func decodeCompactSize(t *testing.T, b []byte) uint64 {
 	return v
 }
 
-// findVector returns the first vector whose description starts with the given
+// findSpVector returns the first vector whose description starts with the given
 // prefix.
-func findVector(t *testing.T, vectors []spVector, prefix string) spVector {
+func findSpVector(t *testing.T, vectors []spVector, prefix string) spVector {
 	t.Helper()
 
 	for _, v := range vectors {
