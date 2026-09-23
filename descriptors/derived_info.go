@@ -195,7 +195,7 @@ func (d *Descriptor) exportKey(info *DerivedInfo, key *descKey, position int,
 	mp, idx uint32) error {
 
 	if len(key.participants) != 0 {
-		return fmt.Errorf("MuSig2 metadata is not yet supported")
+		return d.exportMuSig2(info, key, position, mp, idx)
 	}
 	entry, err := key.derivedKey(position, -1, mp, idx)
 	if err != nil {
