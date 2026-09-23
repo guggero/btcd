@@ -124,6 +124,12 @@ type descKey struct {
 	// descriptor.
 	raw string
 
+	// origin describes the already-taken path, not the suffix to derive.
+	origin *KeyOrigin
+
+	// private remembers WIF sources even after retaining only public bytes.
+	private bool
+
 	// form is the serialization the position the key appears in requires.
 	form keyForm
 
@@ -169,6 +175,7 @@ func parseDescKey(s string, form keyForm) (*descKey, error) {
 			return nil, fmt.Errorf("invalid key origin in %q: %w",
 				s, err)
 		}
+		k.origin = parseValidatedOrigin(body[1:end])
 
 		body = body[end+1:]
 	}
@@ -212,6 +219,7 @@ func parseDescKey(s string, form keyForm) (*descKey, error) {
 		}
 
 		k.rawKey = rawKey
+		k.private = true
 		return k, nil
 	}
 
@@ -236,6 +244,7 @@ func parseDescKey(s string, form keyForm) (*descKey, error) {
 	}
 
 	k.xpub = xpub
+	k.private = xpub.IsPrivate()
 
 	if !hasPath {
 		return k, nil
@@ -581,6 +590,34 @@ func (k *descKey) derivePub(
 		}
 	}
 
+	path, err := k.resolvePath(multipathIndex, derivationIndex)
+	if err != nil {
+		return nil, err
+	}
+	for _, index := range path {
+		// Keep the existing diagnostic for callers deriving hardened
+		// suffixes from public descriptors.
+		if index >= hdkeychain.HardenedKeyStart && !cur.IsPrivate() {
+			return nil, fmt.Errorf("cannot derive the hardened "+
+				"child %d from an extended public key", index)
+		}
+
+		// Derive applies the same resolved path that metadata exports.
+		cur, err = cur.Derive(index)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return cur.ECPubKey()
+}
+
+// resolvePath resolves only the suffix after a key. Origin components have
+// already been derived and must never be applied a second time.
+func (k *descKey) resolvePath(multipathIndex, derivationIndex uint32) ([]uint32,
+	error) {
+
+	path := make([]uint32, 0, len(k.steps))
 	for _, step := range k.steps {
 		var index pathIndex
 		switch step.kind {
@@ -611,23 +648,9 @@ func (k *descKey) derivePub(
 			}
 		}
 
-		// A hardened child can only be derived from a private extended
-		// key, so a descriptor that names one is valid but not
-		// derivable from an xpub.
-		if index.hardened && !cur.IsPrivate() {
-			return nil, fmt.Errorf("cannot derive the hardened "+
-				"child %v of %q from an extended public key",
-				index, k.raw)
-		}
-
-		var err error
-		cur, err = cur.Derive(index.childIndex())
-		if err != nil {
-			return nil, err
-		}
+		path = append(path, index.childIndex())
 	}
-
-	return cur.ECPubKey()
+	return path, nil
 }
 
 // derive derives the concrete public key at the given indices and serializes it
