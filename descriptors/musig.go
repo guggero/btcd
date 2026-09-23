@@ -1,7 +1,9 @@
 package descriptors
 
 import (
+	"bytes"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -83,23 +85,39 @@ func parseMuSigKey(s string, form keyForm) (*descKey, error) {
 func (k *descKey) aggregatePub(
 	multipathIndex, derivationIndex uint32) (*btcec.PublicKey, error) {
 
+	pub, _, err := k.aggregateKeys(multipathIndex, derivationIndex)
+	return pub, err
+}
+
+// aggregateKeys returns the full aggregate and its concrete sorted
+// participants. Both derivation and metadata export use this helper so ordering
+// cannot diverge.
+func (k *descKey) aggregateKeys(
+	multipathIndex, derivationIndex uint32) (*btcec.PublicKey,
+	[]*btcec.PublicKey, error) {
+
 	keys := make([]*btcec.PublicKey, len(k.participants))
 	for i, participant := range k.participants {
 		pub, err := participant.derivePub(
 			multipathIndex, derivationIndex,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("derive musig() participant "+
+			return nil, nil, fmt.Errorf("derive musig() participant "+
 				"%d: %w", i, err)
 		}
 		keys[i] = pub
 	}
 
-	// AggregateKeys sorts a fresh slice, never the descriptor's immutable
-	// participant list. Duplicates are retained as BIP390 requires.
-	aggregate, _, _, err := musig2.AggregateKeys(keys, true)
+	// Sort the fresh slice explicitly so metadata sees the same order as
+	// aggregation. Duplicates and each point's parity are significant.
+	slices.SortFunc(keys, func(a, b *btcec.PublicKey) int {
+		return bytes.Compare(
+			a.SerializeCompressed(), b.SerializeCompressed(),
+		)
+	})
+	aggregate, _, _, err := musig2.AggregateKeys(keys, false)
 	if err != nil {
-		return nil, fmt.Errorf("aggregate musig() keys: %w", err)
+		return nil, nil, fmt.Errorf("aggregate musig() keys: %w", err)
 	}
-	return aggregate.FinalKey, nil
+	return aggregate.FinalKey, keys, nil
 }

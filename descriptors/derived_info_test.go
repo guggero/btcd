@@ -3,6 +3,7 @@ package descriptors
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -10,6 +11,74 @@ import (
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/stretchr/testify/require"
 )
+
+// TestDerivedInfoSpendingCorpus checks every distinct public instance in the
+// spending corpus, covering sorted multisig, Miniscript and resource
+// boundaries. Expectations come from the portable vectors, never from metadata
+// compilation.
+func TestDerivedInfoSpendingCorpus(t *testing.T) {
+	data, err := os.ReadFile("testdata/spending_vectors.json")
+	require.NoError(t, err)
+	var vectors struct {
+		Cases []struct {
+			ID              string `json:"id"`
+			Descriptor      string `json:"descriptor"`
+			MultipathIndex  uint32 `json:"multipath_index"`
+			DerivationIndex uint32 `json:"derivation_index"`
+			ScriptPubKey    string `json:"script_pubkey"`
+			ExpectedPlan    struct {
+				Error string `json:"error"`
+			} `json:"expected_plan"`
+		}
+	}
+	require.NoError(t, json.Unmarshal(data, &vectors))
+	seen := make(map[string]bool)
+	for _, vector := range vectors.Cases {
+		if vector.ScriptPubKey == "" {
+			continue
+		}
+		identity := fmt.Sprintf("%s/%d/%d", vector.Descriptor,
+			vector.MultipathIndex, vector.DerivationIndex)
+		if seen[identity] {
+			continue
+		}
+		seen[identity] = true
+		t.Run(vector.ID, func(t *testing.T) {
+			d, err := NewDescriptor(vector.Descriptor)
+			if vector.ExpectedPlan.Error == "parse" {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			if d.HasPrivateKeys() {
+				_, err := d.DerivedInfoAt(
+					vector.MultipathIndex,
+					vector.DerivationIndex,
+				)
+				require.Error(t, err)
+				return
+			}
+			info, err := d.DerivedInfoAt(
+				vector.MultipathIndex, vector.DerivationIndex,
+			)
+			if err != nil {
+				// Negative coordinates can retain the original
+				// script in the spending corpus. They must
+				// already forbid planning.
+				require.Equal(
+					t, "plan", vector.ExpectedPlan.Error,
+				)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(
+				t, vector.ScriptPubKey,
+				hex.EncodeToString(info.ScriptPubKey),
+			)
+		})
+	}
+	require.NotEmpty(t, seen)
+}
 
 // TestDerivedInfoVectors compares metadata with the existing independently
 // differential-tested spending corpus, without constructing expected scripts.
