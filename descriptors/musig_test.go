@@ -83,6 +83,37 @@ func TestBIP390Vectors(t *testing.T) {
 						d, 0, uint32(index),
 					)
 					require.NoError(t, err)
+
+					// Metadata must commit to the same
+					// official script and preserve the
+					// actual aggregation order.
+					info, err := d.DerivedInfoAt(0, uint32(
+						index,
+					))
+					require.NoError(t, err)
+					require.Equal(
+						t, script, info.ScriptPubKey,
+					)
+					for _, group := range info.MuSig2Groups {
+						members := make(
+							[]*btcec.PublicKey,
+							len(group.Participants),
+						)
+						for i, raw := range group.Participants {
+							members[i], err = btcec.ParsePubKey(raw)
+							require.NoError(t, err)
+							if i > 0 {
+								require.LessOrEqual(t, strings.Compare(hex.EncodeToString(group.Participants[i-1]), hex.EncodeToString(raw)), 0)
+							}
+						}
+						agg, _, _, err := musig2.AggregateKeys(members, false)
+						require.NoError(t, err)
+						require.Equal(
+							t,
+							agg.FinalKey.SerializeCompressed(),
+							group.AggregateKey,
+						)
+					}
 				}
 				require.Equal(t, expected, hex.EncodeToString(
 					script,
