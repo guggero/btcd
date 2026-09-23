@@ -736,12 +736,14 @@ func parseMs(s string, pos scriptPos, keys *[]*descKey) (*node, error) {
 	if err != nil {
 		return nil, err
 	}
+	var nodeKeys []*descKey
 	for _, keyStr := range ast.Keys() {
 		key, err := parseDescKey(keyStr, keyFrm)
 		if err != nil {
 			return nil, err
 		}
 		*keys = append(*keys, key)
+		nodeKeys = append(nodeKeys, key)
 	}
 
 	return &node{
@@ -750,6 +752,7 @@ func parseMs(s string, pos scriptPos, keys *[]*descKey) (*node, error) {
 		msExpr: s,
 		msCtx:  ctx,
 		msAST:  ast,
+		keys:   nodeKeys,
 	}, nil
 }
 
