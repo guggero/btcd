@@ -6,8 +6,11 @@ package blockchain
 
 import (
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/stretchr/testify/require"
 )
 
 // TestThresholdStateStringer tests the stringized output for the
@@ -317,6 +320,69 @@ func TestThresholdStateTransition(t *testing.T) {
 			t.Fatalf("#%v: incorrect state transition: "+
 				"expected %v got %v", i, testCase.nextState,
 				nextState)
+		}
+	}
+}
+
+// TestTemplateHashDeployment asserts that the BIP 446 deployment is always
+// active on the networks used for testing, and that it can't be activated on
+// any other network, no matter how many blocks signal for it.
+func TestTemplateHashDeployment(t *testing.T) {
+	const deploymentID = chaincfg.DeploymentTemplateHash
+
+	alwaysActive := []*chaincfg.Params{
+		&chaincfg.RegressionNetParams, &chaincfg.SimNetParams,
+	}
+	for _, params := range alwaysActive {
+		chain := newFakeChain(params)
+
+		state, err := chain.deploymentState(
+			chain.bestChain.Tip(), deploymentID,
+		)
+		require.NoError(t, err, params.Name)
+		require.Equal(t, ThresholdActive, state, params.Name)
+	}
+
+	neverActive := []*chaincfg.Params{
+		&chaincfg.MainNetParams, &chaincfg.TestNet3Params,
+		&chaincfg.TestNet4Params, &chaincfg.SigNetParams,
+	}
+	for _, params := range neverActive {
+		chain := newFakeChain(params)
+		deployment := &params.Deployments[deploymentID]
+
+		// Every block signals for the deployment.
+		blockVersion := int32(vbTopBits | 1<<deployment.BitNumber)
+
+		// The state is defined within the first confirmation window
+		// and then moves to failed, as the voting period is over. We
+		// look at the state up to the point where a deployment that
+		// has all the votes would be active.
+		node := chain.bestChain.Tip()
+		blockTime := time.Unix(node.timestamp, 0)
+		window := int32(params.MinerConfirmationWindow)
+		for node.height < 4*window {
+			expectedState := ThresholdFailed
+			if node.height+1 < window {
+				expectedState = ThresholdDefined
+			}
+
+			state, err := chain.deploymentState(node, deploymentID)
+			require.NoError(t, err, params.Name)
+			require.Equalf(
+				t, expectedState, state, "%s, height %d",
+				params.Name, node.height+1,
+			)
+
+			blockTime = blockTime.Add(params.TargetTimePerBlock)
+			node = newFakeNode(
+				node, blockVersion, params.PowLimitBits,
+				blockTime,
+			)
+
+			// The median time the deployment is evaluated with
+			// is calculated by looking up the nodes in the index.
+			chain.index.AddNode(node)
 		}
 	}
 }
