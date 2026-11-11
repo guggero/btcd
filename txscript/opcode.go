@@ -706,6 +706,34 @@ var successOpcodes = map[byte]struct{}{
 	OP_PUBKEY:       {}, // 254
 }
 
+// successOpcodeUpgrade describes how an op code that used to be an OP_SUCCESS
+// op code is treated now that a soft fork gave it a meaning.
+type successOpcodeUpgrade struct {
+	// activeFlag is the script flag that is set once the soft fork is
+	// active. With the flag set, the op code is executed instead of making
+	// the script succeed.
+	activeFlag ScriptFlags
+
+	// discourageFlag is the policy flag that makes scripts containing the
+	// op code non-standard until the soft fork is active.
+	discourageFlag ScriptFlags
+
+	// discourageErr is the error code that is returned if the op code is
+	// found in a script while the discourageFlag is set.
+	discourageErr ErrorCode
+}
+
+// upgradedSuccessOpcodes tracks the subset of the successOpcodes that were
+// given a meaning by a soft fork. As long as the flag of the soft fork isn't
+// set, these op codes still cause execution to automatically succeed.
+var upgradedSuccessOpcodes = map[byte]successOpcodeUpgrade{
+	OP_TEMPLATEHASH: {
+		activeFlag:     ScriptVerifyTemplateHash,
+		discourageFlag: ScriptVerifyDiscourageTemplateHash,
+		discourageErr:  ErrDiscourageTemplateHash,
+	},
+}
+
 // disasmOpcode writes a human-readable disassembly of the provided opcode and
 // data into the provided buffer.  The compact flag indicates the disassembly
 // should print a more compact representation of data-carrying and small integer
