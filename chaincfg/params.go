@@ -171,6 +171,14 @@ const (
 	// OP_TEMPLATEHASH soft-fork as defined in BIP 446.
 	DeploymentTemplateHash
 
+	// DeploymentCheckSigFromStack defines the rule change deployment ID
+	// for the OP_CHECKSIGFROMSTACK soft-fork as defined in BIP 348.
+	DeploymentCheckSigFromStack
+
+	// DeploymentInternalKey defines the rule change deployment ID for the
+	// OP_INTERNALKEY soft-fork as defined in BIP 349.
+	DeploymentInternalKey
+
 	// NOTE: DefinedDeployments must always come last since it is used to
 	// determine how many defined deployments there currently are.
 
@@ -458,6 +466,32 @@ var MainNetParams = Params{
 				time.Unix(1230767999, 0), // December 31, 2008 UTC
 			),
 		},
+		DeploymentCheckSigFromStack: {
+			// The activation parameters of BIP 348 are yet to be
+			// determined. Until then the voting period lies in the
+			// past, so the deployment can't activate and is
+			// reported as failed.
+			BitNumber: 4,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1199145601, 0), // January 1, 2008 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Unix(1230767999, 0), // December 31, 2008 UTC
+			),
+		},
+		DeploymentInternalKey: {
+			// The activation parameters of BIP 349 are yet to be
+			// determined. Until then the voting period lies in the
+			// past, so the deployment can't activate and is
+			// reported as failed.
+			BitNumber: 5,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1199145601, 0), // January 1, 2008 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Unix(1230767999, 0), // December 31, 2008 UTC
+			),
+		},
 	},
 
 	// Mempool parameters
@@ -584,6 +618,26 @@ var RegressionNetParams = Params{
 		},
 		DeploymentTemplateHash: {
 			BitNumber: 3,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
+		},
+		DeploymentCheckSigFromStack: {
+			BitNumber: 4,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
+		},
+		DeploymentInternalKey: {
+			BitNumber: 5,
 			DeploymentStarter: NewMedianTimeDeploymentStarter(
 				time.Time{}, // Always available for vote
 			),
@@ -750,6 +804,32 @@ var TestNet3Params = Params{
 				time.Unix(1230767999, 0), // December 31, 2008 UTC
 			),
 		},
+		DeploymentCheckSigFromStack: {
+			// The activation parameters of BIP 348 are yet to be
+			// determined. Until then the voting period lies in the
+			// past, so the deployment can't activate and is
+			// reported as failed.
+			BitNumber: 4,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1199145601, 0), // January 1, 2008 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Unix(1230767999, 0), // December 31, 2008 UTC
+			),
+		},
+		DeploymentInternalKey: {
+			// The activation parameters of BIP 349 are yet to be
+			// determined. Until then the voting period lies in the
+			// past, so the deployment can't activate and is
+			// reported as failed.
+			BitNumber: 5,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1199145601, 0), // January 1, 2008 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Unix(1230767999, 0), // December 31, 2008 UTC
+			),
+		},
 	},
 
 	// Mempool parameters
@@ -888,6 +968,32 @@ var TestNet4Params = Params{
 				time.Unix(1230767999, 0), // December 31, 2008 UTC
 			),
 		},
+		DeploymentCheckSigFromStack: {
+			// The activation parameters of BIP 348 are yet to be
+			// determined. Until then the voting period lies in the
+			// past, so the deployment can't activate and is
+			// reported as failed.
+			BitNumber: 4,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1199145601, 0), // January 1, 2008 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Unix(1230767999, 0), // December 31, 2008 UTC
+			),
+		},
+		DeploymentInternalKey: {
+			// The activation parameters of BIP 349 are yet to be
+			// determined. Until then the voting period lies in the
+			// past, so the deployment can't activate and is
+			// reported as failed.
+			BitNumber: 5,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1199145601, 0), // January 1, 2008 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Unix(1230767999, 0), // December 31, 2008 UTC
+			),
+		},
 	},
 
 	// Mempool parameters
@@ -1003,6 +1109,26 @@ var SimNetParams = Params{
 		},
 		DeploymentTemplateHash: {
 			BitNumber: 3,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
+		},
+		DeploymentCheckSigFromStack: {
+			BitNumber: 4,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
+		},
+		DeploymentInternalKey: {
+			BitNumber: 5,
 			DeploymentStarter: NewMedianTimeDeploymentStarter(
 				time.Time{}, // Always available for vote
 			),
@@ -1164,6 +1290,32 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 				// past, so the deployment can't activate and is
 				// reported as failed.
 				BitNumber: 3,
+				DeploymentStarter: NewMedianTimeDeploymentStarter(
+					time.Unix(1199145601, 0), // January 1, 2008 UTC
+				),
+				DeploymentEnder: NewMedianTimeDeploymentEnder(
+					time.Unix(1230767999, 0), // December 31, 2008 UTC
+				),
+			},
+			DeploymentCheckSigFromStack: {
+				// The activation parameters of BIP 348 are yet to be
+				// determined. Until then the voting period lies in the
+				// past, so the deployment can't activate and is
+				// reported as failed.
+				BitNumber: 4,
+				DeploymentStarter: NewMedianTimeDeploymentStarter(
+					time.Unix(1199145601, 0), // January 1, 2008 UTC
+				),
+				DeploymentEnder: NewMedianTimeDeploymentEnder(
+					time.Unix(1230767999, 0), // December 31, 2008 UTC
+				),
+			},
+			DeploymentInternalKey: {
+				// The activation parameters of BIP 349 are yet to be
+				// determined. Until then the voting period lies in the
+				// past, so the deployment can't activate and is
+				// reported as failed.
+				BitNumber: 5,
 				DeploymentStarter: NewMedianTimeDeploymentStarter(
 					time.Unix(1199145601, 0), // January 1, 2008 UTC
 				),
