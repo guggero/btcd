@@ -450,6 +450,21 @@ func (g *BlkTmplGenerator) NewBlockTemplate(
 	best := g.chain.BestSnapshot()
 	nextBlockHeight := best.Height + 1
 
+	// The transactions we add to the block must be valid with the same
+	// script flags the mempool accepted them with. These are the standard
+	// flags, without the ones that only discourage the use of a soft fork
+	// until it is active, which is the case for OP_TEMPLATEHASH.
+	scriptFlags := txscript.StandardVerifyFlags
+	templateHashActive, err := g.chain.IsDeploymentActive(
+		chaincfg.DeploymentTemplateHash,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if templateHashActive {
+		scriptFlags &^= txscript.ScriptVerifyDiscourageTemplateHash
+	}
+
 	// Create a standard coinbase transaction paying to the provided
 	// address.  NOTE: The coinbase value will be updated to include the
 	// fees from the selected transactions later after they have actually
@@ -750,8 +765,7 @@ mempoolLoop:
 			continue
 		}
 		err = blockchain.ValidateTransactionScripts(tx, blockUtxos,
-			txscript.StandardVerifyFlags, g.sigCache,
-			g.hashCache)
+			scriptFlags, g.sigCache, g.hashCache)
 		if err != nil {
 			log.Tracef("Skipping tx %s due to error in "+
 				"ValidateTransactionScripts: %v", tx.Hash(), err)

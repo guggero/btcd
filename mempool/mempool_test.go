@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeChain is used by the pool harness to provide generated test utxos and
@@ -1851,4 +1852,105 @@ func TestRBF(t *testing.T) {
 			break
 		}
 	}
+}
+
+// TestTemplateHashPolicy asserts that a transaction spending an output through
+// OP_TEMPLATEHASH is only accepted to the mempool once the BIP 446 deployment
+// is active, and that the op code is then validated.
+func TestTemplateHashPolicy(t *testing.T) {
+	t.Parallel()
+
+	harness, _, err := newPoolHarness(&chaincfg.MainNetParams)
+	require.NoError(t, err)
+
+	// The harness doesn't know about deployments, so we tell the mempool
+	// that segwit is active and control the state of BIP 446 ourselves.
+	// Validating a transaction with witness data also requires the cache
+	// for the sighash midstate.
+	harness.txPool.cfg.HashCache = txscript.NewHashCache(1)
+
+	var templateHashActive bool
+	harness.txPool.cfg.IsDeploymentActive = func(id uint32) (bool, error) {
+		if id == chaincfg.DeploymentTemplateHash {
+			return templateHashActive, nil
+		}
+
+		return true, nil
+	}
+
+	// This is the transaction we're going to commit an output to. The
+	// template hash doesn't cover the outpoint that is spent, so we can
+	// calculate it before that output exists.
+	const (
+		fundingAmount = 100_000
+		spendAmount   = 90_000
+	)
+	spendTx := wire.NewMsgTx(1)
+	spendTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{}, nil, nil))
+	spendTx.AddTxOut(wire.NewTxOut(spendAmount, harness.payScript))
+
+	templateHash, err := txscript.CalcTemplateHash(nil, spendTx, 0, nil)
+	require.NoError(t, err)
+
+	// Create the output that can only be spent by that transaction, and
+	// add it to the UTXO set of the chain.
+	leafScript, err := txscript.NewScriptBuilder().AddData(templateHash).
+		AddOp(txscript.OP_TEMPLATEHASH).AddOp(txscript.OP_EQUAL).
+		Script()
+	require.NoError(t, err)
+
+	internalKey := harness.signKey.PubKey()
+	tree := txscript.AssembleTaprootScriptTree(
+		txscript.NewBaseTapLeaf(leafScript),
+	)
+	rootHash := tree.RootNode.TapHash()
+	outputKey := txscript.ComputeTaprootOutputKey(internalKey, rootHash[:])
+	pkScript, err := txscript.PayToTaprootScript(outputKey)
+	require.NoError(t, err)
+
+	ctrlBlock := tree.LeafMerkleProofs[0].ToControlBlock(internalKey)
+	ctrlBlockBytes, err := ctrlBlock.ToBytes()
+	require.NoError(t, err)
+
+	fundingTx := wire.NewMsgTx(1)
+	fundingTx.AddTxIn(wire.NewTxIn(&wire.OutPoint{Index: 1}, nil, nil))
+	fundingTx.AddTxOut(wire.NewTxOut(fundingAmount, pkScript))
+	harness.chain.utxos.AddTxOuts(
+		btcutil.NewTx(fundingTx), harness.chain.BestHeight(),
+	)
+
+	spendTx.TxIn[0].PreviousOutPoint = wire.OutPoint{
+		Hash: fundingTx.TxHash(),
+	}
+	spendTx.TxIn[0].Witness = wire.TxWitness{leafScript, ctrlBlockBytes}
+
+	// A transaction that pays less than what was committed to doesn't
+	// match the template.
+	invalidSpendTx := spendTx.Copy()
+	invalidSpendTx.TxOut[0].Value--
+
+	// Before the activation, the op code is discouraged no matter whether
+	// the spend matches the template.
+	for _, tx := range []*wire.MsgTx{spendTx, invalidSpendTx} {
+		_, err = harness.txPool.ProcessTransaction(
+			btcutil.NewTx(tx), false, false, 0,
+		)
+		require.ErrorContains(t, err, "OP_TEMPLATEHASH")
+	}
+
+	// Once active, the spend must match the template.
+	templateHashActive = true
+
+	_, err = harness.txPool.ProcessTransaction(
+		btcutil.NewTx(invalidSpendTx), false, false, 0,
+	)
+	require.ErrorContains(t, err, "false stack entry")
+
+	_, err = harness.txPool.ProcessTransaction(
+		btcutil.NewTx(spendTx), false, false, 0,
+	)
+	require.NoError(t, err)
+
+	spendTxHash := spendTx.TxHash()
+	require.True(t, harness.txPool.IsTransactionInPool(&spendTxHash))
 }
