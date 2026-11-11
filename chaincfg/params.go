@@ -166,6 +166,10 @@ const (
 	// to always be active.
 	DeploymentTestDummyAlwaysActive
 
+	// DeploymentTemplateHash defines the rule change deployment ID for the
+	// OP_TEMPLATEHASH soft-fork as defined in BIP 446.
+	DeploymentTemplateHash
+
 	// NOTE: DefinedDeployments must always come last since it is used to
 	// determine how many defined deployments there currently are.
 
@@ -440,6 +444,19 @@ var MainNetParams = Params{
 			CustomActivationThreshold: 1815, // 90%
 			MinActivationHeight:       709_632,
 		},
+		DeploymentTemplateHash: {
+			// The activation parameters of BIP 446 are yet to be
+			// determined. Until then the voting period lies in the
+			// past, so the deployment can't activate and is
+			// reported as failed.
+			BitNumber: 3,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1199145601, 0), // January 1, 2008 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Unix(1230767999, 0), // December 31, 2008 UTC
+			),
+		},
 	},
 
 	// Mempool parameters
@@ -563,6 +580,16 @@ var RegressionNetParams = Params{
 			MinActivationHeight:       0,
 			AlwaysActiveHeight:        1,
 			CustomActivationThreshold: 108, // Only needs 75% hash rate.
+		},
+		DeploymentTemplateHash: {
+			BitNumber: 3,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
 		},
 	},
 
@@ -709,6 +736,19 @@ var TestNet3Params = Params{
 			),
 			CustomActivationThreshold: 1512, // 75%
 		},
+		DeploymentTemplateHash: {
+			// The activation parameters of BIP 446 are yet to be
+			// determined. Until then the voting period lies in the
+			// past, so the deployment can't activate and is
+			// reported as failed.
+			BitNumber: 3,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1199145601, 0), // January 1, 2008 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Unix(1230767999, 0), // December 31, 2008 UTC
+			),
+		},
 	},
 
 	// Mempool parameters
@@ -834,6 +874,19 @@ var TestNet4Params = Params{
 			MinActivationHeight: 0,
 			AlwaysActiveHeight:  1,
 		},
+		DeploymentTemplateHash: {
+			// The activation parameters of BIP 446 are yet to be
+			// determined. Until then the voting period lies in the
+			// past, so the deployment can't activate and is
+			// reported as failed.
+			BitNumber: 3,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Unix(1199145601, 0), // January 1, 2008 UTC
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Unix(1230767999, 0), // December 31, 2008 UTC
+			),
+		},
 	},
 
 	// Mempool parameters
@@ -946,6 +999,16 @@ var SimNetParams = Params{
 				time.Time{}, // Never expires.
 			),
 			CustomActivationThreshold: 75, // Only needs 75% hash rate.
+		},
+		DeploymentTemplateHash: {
+			BitNumber: 3,
+			DeploymentStarter: NewMedianTimeDeploymentStarter(
+				time.Time{}, // Always available for vote
+			),
+			DeploymentEnder: NewMedianTimeDeploymentEnder(
+				time.Time{}, // Never expires
+			),
+			AlwaysActiveHeight: 1,
 		},
 		DeploymentTestDummyAlwaysActive: {
 			BitNumber: 29,
@@ -1092,6 +1155,19 @@ func CustomSignetParams(challenge []byte, dnsSeeds []DNSSeed) Params {
 				),
 				DeploymentEnder: NewMedianTimeDeploymentEnder(
 					time.Time{}, // Never expires
+				),
+			},
+			DeploymentTemplateHash: {
+				// The activation parameters of BIP 446 are yet to be
+				// determined. Until then the voting period lies in the
+				// past, so the deployment can't activate and is
+				// reported as failed.
+				BitNumber: 3,
+				DeploymentStarter: NewMedianTimeDeploymentStarter(
+					time.Unix(1199145601, 0), // January 1, 2008 UTC
+				),
+				DeploymentEnder: NewMedianTimeDeploymentEnder(
+					time.Unix(1230767999, 0), // December 31, 2008 UTC
 				),
 			},
 		},
