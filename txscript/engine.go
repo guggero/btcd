@@ -118,6 +118,18 @@ const (
 	// ScriptVerifyConstScriptCode fails non-segwit scripts if a signature
 	// match is found in the script code or if OP_CODESEPARATOR is used.
 	ScriptVerifyConstScriptCode
+
+	// ScriptVerifyTemplateHash defines whether or not OP_TEMPLATEHASH is
+	// executed as defined in BIP 446 during tapscript execution. Without
+	// this flag the op code keeps its OP_SUCCESS206 behavior.
+	ScriptVerifyTemplateHash
+
+	// ScriptVerifyDiscourageTemplateHash defines whether or not to
+	// consider usage of OP_TEMPLATEHASH during tapscript execution as
+	// non-standard. This flag must not be used for consensus critical
+	// code nor applied to blocks, as it is only meant to keep spends of
+	// the op code out of the mempool before BIP 446 is active.
+	ScriptVerifyDiscourageTemplateHash
 )
 
 const (
