@@ -50,6 +50,14 @@ var upgradedSuccessOpcodeTests = []upgradedSuccessOpcodeTest{{
 	activeFlag:     ScriptVerifyInternalKey,
 	discourageFlag: ScriptVerifyDiscourageInternalKey,
 	discourageErr:  ErrDiscourageInternalKey,
+}, {
+	// The op code requires three elements on the stack.
+	name:           "OP_CHECKSIGFROMSTACK",
+	opcode:         OP_CHECKSIGFROMSTACK,
+	activeFlag:     ScriptVerifyCheckSigFromStack,
+	discourageFlag: ScriptVerifyDiscourageCheckSigFromStack,
+	discourageErr:  ErrDiscourageCheckSigFromStack,
+	executeErr:     errCode(ErrInvalidStackOperation),
 }}
 
 // TestUpgradedSuccessOpcodesTable asserts that the tests cover all the op

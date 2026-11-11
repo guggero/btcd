@@ -52,7 +52,9 @@ const (
 		ScriptVerifyTemplateHash |
 		ScriptVerifyDiscourageTemplateHash |
 		ScriptVerifyInternalKey |
-		ScriptVerifyDiscourageInternalKey
+		ScriptVerifyDiscourageInternalKey |
+		ScriptVerifyCheckSigFromStack |
+		ScriptVerifyDiscourageCheckSigFromStack
 )
 
 // PayToAnchorScript is the fixed script bytes for a pay-to-anchor output.

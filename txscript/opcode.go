@@ -16,6 +16,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 	"golang.org/x/crypto/ripemd160"
@@ -246,6 +247,7 @@ const (
 	OP_UNKNOWN203          = 0xcb // 203
 	OP_INTERNALKEY         = 0xcb // 203 - AKA OP_UNKNOWN203
 	OP_UNKNOWN204          = 0xcc // 204
+	OP_CHECKSIGFROMSTACK   = 0xcc // 204 - AKA OP_UNKNOWN204
 	OP_UNKNOWN205          = 0xcd // 205
 	OP_UNKNOWN206          = 0xce // 206
 	OP_TEMPLATEHASH        = 0xce // 206 - AKA OP_UNKNOWN206
@@ -505,6 +507,7 @@ var opcodeArray = [256]opcode{
 	OP_CHECKSIGADD:         {OP_CHECKSIGADD, "OP_CHECKSIGADD", 1, opcodeCheckSigAdd},
 	OP_TEMPLATEHASH:        {OP_TEMPLATEHASH, "OP_TEMPLATEHASH", 1, opcodeTemplateHash},
 	OP_INTERNALKEY:         {OP_INTERNALKEY, "OP_INTERNALKEY", 1, opcodeInternalKey},
+	OP_CHECKSIGFROMSTACK:   {OP_CHECKSIGFROMSTACK, "OP_CHECKSIGFROMSTACK", 1, opcodeCheckSigFromStack},
 
 	// Reserved opcodes.
 	OP_NOP1:  {OP_NOP1, "OP_NOP1", 1, opcodeNop},
@@ -533,7 +536,6 @@ var opcodeArray = [256]opcode{
 	OP_UNKNOWN200: {OP_UNKNOWN200, "OP_UNKNOWN200", 1, opcodeInvalid},
 	OP_UNKNOWN201: {OP_UNKNOWN201, "OP_UNKNOWN201", 1, opcodeInvalid},
 	OP_UNKNOWN202: {OP_UNKNOWN202, "OP_UNKNOWN202", 1, opcodeInvalid},
-	OP_UNKNOWN204: {OP_UNKNOWN204, "OP_UNKNOWN204", 1, opcodeInvalid},
 	OP_UNKNOWN205: {OP_UNKNOWN205, "OP_UNKNOWN205", 1, opcodeInvalid},
 	OP_UNKNOWN207: {OP_UNKNOWN207, "OP_UNKNOWN207", 1, opcodeInvalid},
 	OP_UNKNOWN208: {OP_UNKNOWN208, "OP_UNKNOWN208", 1, opcodeInvalid},
@@ -654,7 +656,7 @@ var successOpcodes = map[byte]struct{}{
 	OP_UNKNOWN201:   {}, // 201
 	OP_UNKNOWN202:   {}, // 202
 	OP_INTERNALKEY:  {}, // 203
-	OP_UNKNOWN204:   {}, // 204
+	OP_UNKNOWN204:   {}, // 204 - AKA OP_CHECKSIGFROMSTACK
 	OP_UNKNOWN205:   {}, // 205
 	OP_TEMPLATEHASH: {}, // 206
 	OP_UNKNOWN207:   {}, // 207
@@ -737,6 +739,11 @@ var upgradedSuccessOpcodes = map[byte]successOpcodeUpgrade{
 		activeFlag:     ScriptVerifyInternalKey,
 		discourageFlag: ScriptVerifyDiscourageInternalKey,
 		discourageErr:  ErrDiscourageInternalKey,
+	},
+	OP_CHECKSIGFROMSTACK: {
+		activeFlag:     ScriptVerifyCheckSigFromStack,
+		discourageFlag: ScriptVerifyDiscourageCheckSigFromStack,
+		discourageErr:  ErrDiscourageCheckSigFromStack,
 	},
 }
 
@@ -2264,6 +2271,108 @@ func opcodeTemplateHash(op *opcode, data []byte, vm *Engine) error {
 	return nil
 }
 
+// opcodeCheckSigFromStack implements the OP_CHECKSIGFROMSTACK operation
+// defined in BIP 348. It verifies a BIP 340 signature for a public key over a
+// message, all three of which are taken from the stack. The message is
+// verified as is, it's neither hashed nor restricted in its size.
+//
+// The op code takes a public key, a message and a signature, and returns an
+// empty vector if the signature was the empty vector, and 1 otherwise. A
+// signature that is neither empty nor valid fails the script.
+//
+// Stack transformation: [... signature message pubkey] -> [... bool]
+func opcodeCheckSigFromStack(op *opcode, data []byte, vm *Engine) error {
+	// This op code can only be used if tapscript execution is active.
+	// Everywhere else it remains the invalid op code it was before the
+	// soft fork.
+	//
+	// NOTE: During tapscript execution this is only reached if
+	// ScriptVerifyCheckSigFromStack is set. Otherwise the op code is still
+	// an OP_SUCCESS, which ends the validation of the script before any op
+	// code is executed.
+	if vm.taprootCtx == nil {
+		str := fmt.Sprintf("attempt to execute invalid opcode %s", op.name)
+		return scriptError(ErrReservedOpcode, str)
+	}
+
+	// Pop the public key, the message and the signature off the stack.
+	pubKeyBytes, err := vm.dstack.PopByteArray()
+	if err != nil {
+		return err
+	}
+	msg, err := vm.dstack.PopByteArray()
+	if err != nil {
+		return err
+	}
+	sigBytes, err := vm.dstack.PopByteArray()
+	if err != nil {
+		return err
+	}
+
+	// Only non-empty signatures count towards the total tapscript sig op
+	// limit. This is also the case for signatures that are considered
+	// valid because of an unknown public key type.
+	if len(sigBytes) != 0 {
+		// Account for changes in the sig ops budget after this execution.
+		if err := vm.taprootCtx.tallysigOp(); err != nil {
+			return err
+		}
+	}
+
+	// Key-type rules apply even to empty signatures. Check them after
+	// sigop accounting to preserve its error precedence.
+	if err := vm.checkTapscriptPubKeyEncoding(pubKeyBytes); err != nil {
+		return err
+	}
+
+	// If the signature is empty, then we'll just push an empty vector
+	// onto the stack and continue from here.
+	if len(sigBytes) == 0 {
+		vm.dstack.PushByteArray([]byte{})
+		return nil
+	}
+
+	// Otherwise, we'll attempt to validate the signature if the public key
+	// is of the one type we know. For any other, unknown, public key type
+	// the signature is considered to be valid, so that such key types can
+	// be given a meaning in the future.
+	if len(pubKeyBytes) == schnorr.PubKeyBytesLen {
+		// There is no sighash type that could be appended, the
+		// signature must be a plain BIP 340 signature.
+		if len(sigBytes) != schnorr.SignatureSize {
+			str := fmt.Sprintf("invalid sig len: %v", len(sigBytes))
+			return scriptError(ErrInvalidTaprootSigLen, str)
+		}
+
+		// A public key or signature that can't be parsed is no
+		// different from a signature that doesn't verify. In either
+		// case we fail execution, as the signature should have been an
+		// empty signature.
+		pubKey, err := schnorr.ParsePubKey(pubKeyBytes)
+		if err != nil {
+			str := fmt.Sprintf("invalid public key: %v", err)
+			return scriptError(ErrTaprootSigInvalid, str)
+		}
+		sig, err := schnorr.ParseSignature(sigBytes)
+		if err != nil {
+			str := fmt.Sprintf("invalid signature: %v", err)
+			return scriptError(ErrTaprootSigInvalid, str)
+		}
+
+		// NOTE: The signature cache isn't used here, as its entries
+		// are keyed by the 32-byte sighash a signature commits to,
+		// while the message can be of any size.
+		if !sig.VerifyMessage(msg, pubKey) {
+			str := "signature not valid for message"
+			return scriptError(ErrTaprootSigInvalid, str)
+		}
+	}
+
+	vm.dstack.PushBool(true)
+
+	return nil
+}
+
 // opcodeInternalKey implements the OP_INTERNALKEY operation defined in BIP
 // 349. It pushes the 32-byte x-only taproot internal key of the output being
 // spent onto the stack, as revealed in the control block.
@@ -2582,9 +2691,9 @@ func init() {
 	// opcode array.  Also add entries for "OP_FALSE", "OP_TRUE", and
 	// "OP_NOP2" since they are aliases for "OP_0", "OP_1",
 	// and "OP_CHECKLOCKTIMEVERIFY" respectively. The same goes for
-	// "OP_UNKNOWN206" and "OP_UNKNOWN203", which are the names
-	// "OP_TEMPLATEHASH" and "OP_INTERNALKEY" had before BIP 446 and BIP
-	// 349.
+	// "OP_UNKNOWN206", "OP_UNKNOWN204" and "OP_UNKNOWN203", which are the
+	// names "OP_TEMPLATEHASH", "OP_CHECKSIGFROMSTACK" and "OP_INTERNALKEY"
+	// had before BIP 446, BIP 348 and BIP 349.
 	for _, op := range opcodeArray {
 		OpcodeByName[op.name] = op.value
 	}
@@ -2593,5 +2702,6 @@ func init() {
 	OpcodeByName["OP_NOP2"] = OP_CHECKLOCKTIMEVERIFY
 	OpcodeByName["OP_NOP3"] = OP_CHECKSEQUENCEVERIFY
 	OpcodeByName["OP_UNKNOWN206"] = OP_TEMPLATEHASH
+	OpcodeByName["OP_UNKNOWN204"] = OP_CHECKSIGFROMSTACK
 	OpcodeByName["OP_UNKNOWN203"] = OP_INTERNALKEY
 }
