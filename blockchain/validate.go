@@ -1366,6 +1366,18 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 		scriptFlags |= txscript.ScriptVerifyTaproot
 	}
 
+	// Enforce OP_TEMPLATEHASH once the BIP 446 soft-fork is active. Until
+	// then, the op code remains an OP_SUCCESS.
+	templateHashState, err := b.deploymentState(
+		node.parent, chaincfg.DeploymentTemplateHash,
+	)
+	if err != nil {
+		return err
+	}
+	if templateHashState == ThresholdActive {
+		scriptFlags |= txscript.ScriptVerifyTemplateHash
+	}
+
 	// Now that the inexpensive checks are done and have passed, verify the
 	// transactions are actually allowed to spend the coins by running the
 	// expensive ECDSA signature check scripts.  Doing this last helps
