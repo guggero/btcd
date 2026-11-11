@@ -21,3 +21,9 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1
 	golang.org/x/sys v0.48.0 // indirect
 )
+
+// OP_CHECKSIGFROMSTACK requires the verification of schnorr signatures over
+// messages of arbitrary length, which was added to the btcec module.
+//
+// TODO: Remove the replace directive once the btcec module is tagged.
+replace github.com/btcsuite/btcd/btcec/v2 => ../btcec

@@ -68,10 +68,12 @@ retract (
 	v0.13.0-beta
 )
 
-// The changes for BIP 446 span the txscript and chaincfg modules as well as the
-// code in this module that makes use of them.
+// The changes for BIP 446, BIP 348 and BIP 349 span the btcec, txscript and
+// chaincfg modules as well as the code in this module that makes use of them.
 //
-// TODO: Remove the replace directives once both modules are tagged.
+// TODO: Remove the replace directives once all three modules are tagged.
+replace github.com/btcsuite/btcd/btcec/v2 => ./btcec
+
 replace github.com/btcsuite/btcd/txscript/v2 => ./txscript
 
 replace github.com/btcsuite/btcd/chaincfg/v2 => ./chaincfg
