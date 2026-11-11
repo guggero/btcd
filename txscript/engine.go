@@ -150,6 +150,31 @@ const (
 	// code nor applied to blocks, as it is only meant to keep spends of
 	// the op code out of the mempool before BIP 446 is active.
 	ScriptVerifyDiscourageTemplateHash
+
+	// ScriptVerifyCheckSigFromStack defines whether or not
+	// OP_CHECKSIGFROMSTACK is executed as defined in BIP 348 during
+	// tapscript execution. Without this flag the op code keeps its
+	// OP_SUCCESS204 behavior.
+	ScriptVerifyCheckSigFromStack
+
+	// ScriptVerifyDiscourageCheckSigFromStack defines whether or not to
+	// consider usage of OP_CHECKSIGFROMSTACK during tapscript execution as
+	// non-standard. This flag must not be used for consensus critical
+	// code nor applied to blocks, as it is only meant to keep spends of
+	// the op code out of the mempool before BIP 348 is active.
+	ScriptVerifyDiscourageCheckSigFromStack
+
+	// ScriptVerifyInternalKey defines whether or not OP_INTERNALKEY is
+	// executed as defined in BIP 349 during tapscript execution. Without
+	// this flag the op code keeps its OP_SUCCESS203 behavior.
+	ScriptVerifyInternalKey
+
+	// ScriptVerifyDiscourageInternalKey defines whether or not to consider
+	// usage of OP_INTERNALKEY during tapscript execution as non-standard.
+	// This flag must not be used for consensus critical code nor applied
+	// to blocks, as it is only meant to keep spends of the op code out of
+	// the mempool before BIP 349 is active.
+	ScriptVerifyDiscourageInternalKey
 )
 
 const (

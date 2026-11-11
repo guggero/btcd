@@ -440,6 +440,17 @@ const (
 	// op code is encountered during tapscript validation.
 	ErrDiscourageTemplateHash
 
+	// ErrDiscourageCheckSigFromStack is returned if
+	// ScriptVerifyDiscourageCheckSigFromStack is active, and an
+	// OP_CHECKSIGFROMSTACK op code is encountered during tapscript
+	// validation.
+	ErrDiscourageCheckSigFromStack
+
+	// ErrDiscourageInternalKey is returned if
+	// ScriptVerifyDiscourageInternalKey is active, and an OP_INTERNALKEY
+	// op code is encountered during tapscript validation.
+	ErrDiscourageInternalKey
+
 	// numErrorCodes is the maximum error code number used in tests.  This
 	// entry MUST be the last entry in the enum.
 	numErrorCodes
@@ -531,6 +542,8 @@ var errorCodeStrings = map[ErrorCode]string{
 	ErrInvalidSigHashSingleIndex:           "ErrInvalidSigHashSingleIndex",
 	ErrDisallowedSigHashType:               "ErrDisallowedSigHashType",
 	ErrDiscourageTemplateHash:              "ErrDiscourageTemplateHash",
+	ErrDiscourageCheckSigFromStack:         "ErrDiscourageCheckSigFromStack",
+	ErrDiscourageInternalKey:               "ErrDiscourageInternalKey",
 }
 
 // String returns the ErrorCode as a human-readable name.
