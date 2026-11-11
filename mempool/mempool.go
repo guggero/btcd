@@ -1565,29 +1565,14 @@ func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx,
 func (mp *TxPool) standardScriptFlags(tx *btcutil.Tx) (txscript.ScriptFlags,
 	error) {
 
-	scriptFlags := txscript.StandardVerifyFlags
-
 	// All soft forks we need to look at here change the rules of witness
 	// programs, so there's nothing to do for a transaction without any
 	// witness data.
 	if !tx.MsgTx().HasWitness() {
-		return scriptFlags, nil
+		return txscript.StandardVerifyFlags, nil
 	}
 
-	// Past its activation, we no longer discourage OP_TEMPLATEHASH spends.
-	// The op code is validated according to BIP 446 either way, as
-	// ScriptVerifyTemplateHash is part of the standard flags.
-	templateHashActive, err := mp.cfg.IsDeploymentActive(
-		chaincfg.DeploymentTemplateHash,
-	)
-	if err != nil {
-		return 0, err
-	}
-	if templateHashActive {
-		scriptFlags &^= txscript.ScriptVerifyDiscourageTemplateHash
-	}
-
-	return scriptFlags, nil
+	return mining.StandardScriptFlags(mp.cfg.IsDeploymentActive)
 }
 
 // validateSegWitDeployment checks that when a transaction has witness data,

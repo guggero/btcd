@@ -7,6 +7,8 @@ package mining
 import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
 )
 
@@ -16,6 +18,44 @@ const (
 	// when it has not yet been mined into a block.
 	UnminedHeight = 0x7fffffff
 )
+
+// discouragedDeployments maps the deployments of soft-forks to the script flag
+// that keeps transactions making use of the soft-fork non-standard until the
+// deployment is active.
+var discouragedDeployments = []struct {
+	deploymentID   uint32
+	discourageFlag txscript.ScriptFlags
+}{{
+	// OP_TEMPLATEHASH, BIP 446.
+	deploymentID:   chaincfg.DeploymentTemplateHash,
+	discourageFlag: txscript.ScriptVerifyDiscourageTemplateHash,
+}}
+
+// StandardScriptFlags returns the script flags a transaction must be valid
+// with in order to be relayed and to be added to a block template. These are
+// the standard flags, without the ones that only discourage the use of a
+// soft-fork until it is active.
+//
+// The rules of such a soft-fork are validated either way, as the script flag
+// enforcing them is part of the standard flags. This makes sure that we never
+// relay or mine a transaction that becomes invalid with the activation.
+func StandardScriptFlags(
+	isDeploymentActive func(deploymentID uint32) (bool, error)) (
+	txscript.ScriptFlags, error) {
+
+	scriptFlags := txscript.StandardVerifyFlags
+	for _, deployment := range discouragedDeployments {
+		active, err := isDeploymentActive(deployment.deploymentID)
+		if err != nil {
+			return 0, err
+		}
+		if active {
+			scriptFlags &^= deployment.discourageFlag
+		}
+	}
+
+	return scriptFlags, nil
+}
 
 // Policy houses the policy (configuration parameters) which is used to control
 // the generation of block templates.  See the documentation for

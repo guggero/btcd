@@ -451,18 +451,10 @@ func (g *BlkTmplGenerator) NewBlockTemplate(
 	nextBlockHeight := best.Height + 1
 
 	// The transactions we add to the block must be valid with the same
-	// script flags the mempool accepted them with. These are the standard
-	// flags, without the ones that only discourage the use of a soft fork
-	// until it is active, which is the case for OP_TEMPLATEHASH.
-	scriptFlags := txscript.StandardVerifyFlags
-	templateHashActive, err := g.chain.IsDeploymentActive(
-		chaincfg.DeploymentTemplateHash,
-	)
+	// script flags the mempool accepted them with.
+	scriptFlags, err := StandardScriptFlags(g.chain.IsDeploymentActive)
 	if err != nil {
 		return nil, err
-	}
-	if templateHashActive {
-		scriptFlags &^= txscript.ScriptVerifyDiscourageTemplateHash
 	}
 
 	// Create a standard coinbase transaction paying to the provided
