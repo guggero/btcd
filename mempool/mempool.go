@@ -1534,9 +1534,12 @@ func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx,
 
 	// Verify crypto signatures for each input and reject the transaction
 	// if any don't verify.
+	scriptFlags, err := mp.standardScriptFlags(tx)
+	if err != nil {
+		return nil, err
+	}
 	err = blockchain.ValidateTransactionScripts(tx, utxoView,
-		txscript.StandardVerifyFlags, mp.cfg.SigCache,
-		mp.cfg.HashCache)
+		scriptFlags, mp.cfg.SigCache, mp.cfg.HashCache)
 	if err != nil {
 		if cerr, ok := err.(blockchain.RuleError); ok {
 			return nil, chainRuleError(cerr)
@@ -1553,6 +1556,38 @@ func (mp *TxPool) checkMempoolAcceptance(tx *btcutil.Tx,
 	}
 
 	return result, nil
+}
+
+// standardScriptFlags returns the script flags a transaction must be valid
+// with in order to be accepted to the mempool. These are the standard flags,
+// without the ones that only discourage the use of a soft fork until it is
+// active.
+func (mp *TxPool) standardScriptFlags(tx *btcutil.Tx) (txscript.ScriptFlags,
+	error) {
+
+	scriptFlags := txscript.StandardVerifyFlags
+
+	// All soft forks we need to look at here change the rules of witness
+	// programs, so there's nothing to do for a transaction without any
+	// witness data.
+	if !tx.MsgTx().HasWitness() {
+		return scriptFlags, nil
+	}
+
+	// Past its activation, we no longer discourage OP_TEMPLATEHASH spends.
+	// The op code is validated according to BIP 446 either way, as
+	// ScriptVerifyTemplateHash is part of the standard flags.
+	templateHashActive, err := mp.cfg.IsDeploymentActive(
+		chaincfg.DeploymentTemplateHash,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if templateHashActive {
+		scriptFlags &^= txscript.ScriptVerifyDiscourageTemplateHash
+	}
+
+	return scriptFlags, nil
 }
 
 // validateSegWitDeployment checks that when a transaction has witness data,
