@@ -48,7 +48,9 @@ const (
 		ScriptVerifyDiscourageUpgradeableTaprootVersion |
 		ScriptVerifyDiscourageOpSuccess |
 		ScriptVerifyDiscourageUpgradeablePubkeyType |
-		ScriptVerifyConstScriptCode
+		ScriptVerifyConstScriptCode |
+		ScriptVerifyTemplateHash |
+		ScriptVerifyDiscourageTemplateHash
 )
 
 // PayToAnchorScript is the fixed script bytes for a pay-to-anchor output.

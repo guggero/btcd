@@ -555,6 +555,10 @@ func IsUnspendable(pkScript []byte) bool {
 
 // ScriptHasOpSuccess returns true if any op codes in the script contain an
 // OP_SUCCESS op code.
+//
+// NOTE: This function isn't aware of any script flags. It reports the set of
+// OP_SUCCESS op codes defined by BIP 342, including the ones that were given a
+// meaning by a later soft fork such as OP_TEMPLATEHASH.
 func ScriptHasOpSuccess(witnessScript []byte) bool {
 	// First, create a new script tokenizer so we can run through all the
 	// elements.

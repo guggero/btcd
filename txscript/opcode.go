@@ -247,6 +247,7 @@ const (
 	OP_UNKNOWN204          = 0xcc // 204
 	OP_UNKNOWN205          = 0xcd // 205
 	OP_UNKNOWN206          = 0xce // 206
+	OP_TEMPLATEHASH        = 0xce // 206 - AKA OP_UNKNOWN206
 	OP_UNKNOWN207          = 0xcf // 207
 	OP_UNKNOWN208          = 0xd0 // 208
 	OP_UNKNOWN209          = 0xd1 // 209
@@ -501,6 +502,7 @@ var opcodeArray = [256]opcode{
 	OP_CHECKMULTISIG:       {OP_CHECKMULTISIG, "OP_CHECKMULTISIG", 1, opcodeCheckMultiSig},
 	OP_CHECKMULTISIGVERIFY: {OP_CHECKMULTISIGVERIFY, "OP_CHECKMULTISIGVERIFY", 1, opcodeCheckMultiSigVerify},
 	OP_CHECKSIGADD:         {OP_CHECKSIGADD, "OP_CHECKSIGADD", 1, opcodeCheckSigAdd},
+	OP_TEMPLATEHASH:        {OP_TEMPLATEHASH, "OP_TEMPLATEHASH", 1, opcodeTemplateHash},
 
 	// Reserved opcodes.
 	OP_NOP1:  {OP_NOP1, "OP_NOP1", 1, opcodeNop},
@@ -532,7 +534,6 @@ var opcodeArray = [256]opcode{
 	OP_UNKNOWN203: {OP_UNKNOWN203, "OP_UNKNOWN203", 1, opcodeInvalid},
 	OP_UNKNOWN204: {OP_UNKNOWN204, "OP_UNKNOWN204", 1, opcodeInvalid},
 	OP_UNKNOWN205: {OP_UNKNOWN205, "OP_UNKNOWN205", 1, opcodeInvalid},
-	OP_UNKNOWN206: {OP_UNKNOWN206, "OP_UNKNOWN206", 1, opcodeInvalid},
 	OP_UNKNOWN207: {OP_UNKNOWN207, "OP_UNKNOWN207", 1, opcodeInvalid},
 	OP_UNKNOWN208: {OP_UNKNOWN208, "OP_UNKNOWN208", 1, opcodeInvalid},
 	OP_UNKNOWN209: {OP_UNKNOWN209, "OP_UNKNOWN209", 1, opcodeInvalid},
@@ -654,7 +655,7 @@ var successOpcodes = map[byte]struct{}{
 	OP_UNKNOWN203:   {}, // 203
 	OP_UNKNOWN204:   {}, // 204
 	OP_UNKNOWN205:   {}, // 205
-	OP_UNKNOWN206:   {}, // 206
+	OP_TEMPLATEHASH: {}, // 206
 	OP_UNKNOWN207:   {}, // 207
 	OP_UNKNOWN208:   {}, // 208
 	OP_UNKNOWN209:   {}, // 209
@@ -2194,6 +2195,45 @@ func opcodeCheckSigAdd(op *opcode, data []byte, vm *Engine) error {
 	return nil
 }
 
+// opcodeTemplateHash implements the OP_TEMPLATEHASH operation defined in BIP
+// 446. It pushes the template hash of the transaction being validated onto the
+// stack, which commits to the transaction's version, locktime, input
+// sequences and outputs, as well as to the index and annex of the input being
+// spent.
+//
+// Stack transformation: [...] -> [... templatehash]
+func opcodeTemplateHash(op *opcode, data []byte, vm *Engine) error {
+	// This op code can only be used if tapscript execution is active.
+	// Everywhere else it remains the invalid op code it was before the
+	// soft fork.
+	//
+	// NOTE: During tapscript execution this is only reached if
+	// ScriptVerifyTemplateHash is set. Otherwise the op code is still an
+	// OP_SUCCESS, which ends the validation of the script before any op
+	// code is executed.
+	if vm.taprootCtx == nil {
+		str := fmt.Sprintf("attempt to execute invalid opcode %s", op.name)
+		return scriptError(ErrReservedOpcode, str)
+	}
+
+	// The template hash is the same for every execution of the op code
+	// within an input, so we only calculate it once. There is no limit on
+	// how often the op code can be used in a script, and without the cache
+	// each execution would hash the annex again.
+	if vm.taprootCtx.templateHash == nil {
+		templateHash := calcTemplateHash(
+			vm.hashCache, &vm.tx, vm.txIdx, vm.taprootCtx.annex,
+		)
+		vm.taprootCtx.templateHash = &templateHash
+	}
+
+	// Push a copy, so the stack element never aliases the cached value.
+	templateHash := *vm.taprootCtx.templateHash
+	vm.dstack.PushByteArray(templateHash[:])
+
+	return nil
+}
+
 // parsedSigInfo houses a raw signature along with its parsed form and a flag
 // for whether or not it has already been parsed.  It is used to prevent parsing
 // the same signature multiple times when verifying a multisig.
@@ -2487,7 +2527,9 @@ func init() {
 	// Initialize the opcode name to value map using the contents of the
 	// opcode array.  Also add entries for "OP_FALSE", "OP_TRUE", and
 	// "OP_NOP2" since they are aliases for "OP_0", "OP_1",
-	// and "OP_CHECKLOCKTIMEVERIFY" respectively.
+	// and "OP_CHECKLOCKTIMEVERIFY" respectively. The same goes for
+	// "OP_UNKNOWN206", which is the name "OP_TEMPLATEHASH" had before BIP
+	// 446.
 	for _, op := range opcodeArray {
 		OpcodeByName[op.name] = op.value
 	}
@@ -2495,4 +2537,5 @@ func init() {
 	OpcodeByName["OP_TRUE"] = OP_TRUE
 	OpcodeByName["OP_NOP2"] = OP_CHECKLOCKTIMEVERIFY
 	OpcodeByName["OP_NOP3"] = OP_CHECKSEQUENCEVERIFY
+	OpcodeByName["OP_UNKNOWN206"] = OP_TEMPLATEHASH
 }
