@@ -138,6 +138,19 @@ func schnorrVerify(sig *Signature, hash []byte, pubKeyBytes []byte) error {
 		return signatureError(ecdsa_schnorr.ErrInvalidHashLen, str)
 	}
 
+	return schnorrVerifyMessage(sig, hash, pubKeyBytes)
+}
+
+// schnorrVerifyMessage attempts to verify the signature for the provided
+// message of arbitrary length and secp256k1 public key and either returns nil
+// if successful or a specific error indicating why it failed if not successful.
+//
+// This implements steps 2 to 10 of the verification algorithm described in
+// schnorrVerify. BIP-340 itself doesn't restrict the size of the message, the
+// restriction to 32 bytes in step 1 is specific to the signing of hashes.
+func schnorrVerifyMessage(sig *Signature, msg []byte,
+	pubKeyBytes []byte) error {
+
 	// Step 2.
 	//
 	// P = lift_x(int(pk))
@@ -172,7 +185,7 @@ func schnorrVerify(sig *Signature, hash []byte, pubKeyBytes []byte) error {
 	pBytes := SerializePubKey(pubKey)
 
 	commitment := chainhash.TaggedHash(
-		chainhash.TagBIP0340Challenge, rBytes[:], pBytes, hash,
+		chainhash.TagBIP0340Challenge, rBytes[:], pBytes, msg,
 	)
 
 	var e btcec.ModNScalar
@@ -231,6 +244,15 @@ func schnorrVerify(sig *Signature, hash []byte, pubKeyBytes []byte) error {
 func (sig *Signature) Verify(hash []byte, pubKey *btcec.PublicKey) bool {
 	pubkeyBytes := SerializePubKey(pubKey)
 	return schnorrVerify(sig, hash, pubkeyBytes) == nil
+}
+
+// VerifyMessage returns whether or not the signature is valid for the provided
+// message and secp256k1 public key. Unlike Verify, which expects the 32-byte
+// hash of a message, this accepts a message of arbitrary length as allowed by
+// BIP-340. The message is not hashed before it is verified.
+func (sig *Signature) VerifyMessage(msg []byte, pubKey *btcec.PublicKey) bool {
+	pubkeyBytes := SerializePubKey(pubKey)
+	return schnorrVerifyMessage(sig, msg, pubkeyBytes) == nil
 }
 
 // zeroArray zeroes the memory of a scalar array.

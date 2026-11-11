@@ -257,6 +257,110 @@ func TestSchnorrVerify(t *testing.T) {
 	}
 }
 
+// bip340VarLenTestVectors are the test vectors of BIP-340 that sign a message
+// which isn't 32 bytes long. All of them are valid signatures of the same key.
+var bip340VarLenTestVectors = []struct {
+	publicKey string
+	message   string
+	signature string
+}{
+	{
+		publicKey: "778CAA53B4393AC467774D09497A87224BF9FAB6F6E68B23086497324D6FD117",
+		message:   "",
+		signature: "71535DB165ECD9FBBC046E5FFAEA61186BB6AD436732FCCC25291A55895464CF6069CE26BF03466228F19A3A62DB8A649F2D560FAC652827D1AF0574E427AB63",
+	},
+	{
+		publicKey: "778CAA53B4393AC467774D09497A87224BF9FAB6F6E68B23086497324D6FD117",
+		message:   "11",
+		signature: "08A20A0AFEF64124649232E0693C583AB1B9934AE63B4C3511F3AE1134C6A303EA3173BFEA6683BD101FA5AA5DBC1996FE7CACFC5A577D33EC14564CEC2BACBF",
+	},
+	{
+		publicKey: "778CAA53B4393AC467774D09497A87224BF9FAB6F6E68B23086497324D6FD117",
+		message:   "0102030405060708090A0B0C0D0E0F1011",
+		signature: "5130F39A4059B43BC7CAC09A19ECE52B5D8699D1A71E3C52DA9AFDB6B50AC370C4A482B77BF960F8681540E25B6771ECE1E5A37FD80E5A51897C5566A97EA5A5",
+	},
+	{
+		publicKey: "778CAA53B4393AC467774D09497A87224BF9FAB6F6E68B23086497324D6FD117",
+		message:   "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+		signature: "403B12B0D8555A344175EA7EC746566303321E5DBFA8BE6F091635163ECA79A8585ED3E3170807E7C03B720FC54C7B23897FCBA0E9D0B4A06894CFD249F22367",
+	},
+}
+
+// TestSchnorrVerifyMessage tests that signatures of messages of arbitrary
+// length are verified according to BIP-340, and that a message which is 32
+// bytes long is verified the same way as a hash.
+func TestSchnorrVerifyMessage(t *testing.T) {
+	t.Parallel()
+
+	for i, test := range bip340VarLenTestVectors {
+		pubKey, err := ParsePubKey(decodeHex(test.publicKey))
+		if err != nil {
+			t.Fatalf("test #%v: unable to parse pubkey: %v", i, err)
+		}
+
+		msg := decodeHex(test.message)
+
+		sig, err := ParseSignature(decodeHex(test.signature))
+		if err != nil {
+			t.Fatalf("test #%v: unable to parse sig: %v", i, err)
+		}
+
+		if !sig.VerifyMessage(msg, pubKey) {
+			t.Fatalf("test #%v: verification failed", i)
+		}
+
+		// The signature must not be valid for any other message, be it
+		// a longer, a shorter or a modified one.
+		otherMsgs := [][]byte{append(append([]byte{}, msg...), 0x00)}
+		if len(msg) > 0 {
+			shorterMsg := msg[:len(msg)-1]
+
+			modifiedMsg := append([]byte{}, msg...)
+			modifiedMsg[0] ^= 0x01
+
+			otherMsgs = append(otherMsgs, shorterMsg, modifiedMsg)
+		}
+		for _, otherMsg := range otherMsgs {
+			if sig.VerifyMessage(otherMsg, pubKey) {
+				t.Fatalf("test #%v: verification succeeded "+
+					"for message %x", i, otherMsg)
+			}
+		}
+
+		// Verifying a hash still requires it to be 32 bytes long.
+		if sig.Verify(msg, pubKey) {
+			t.Fatalf("test #%v: verification of invalid hash "+
+				"length succeeded", i)
+		}
+	}
+
+	// For the test vectors with a 32-byte message, both ways of verifying
+	// a signature must come to the same result.
+	for i, test := range bip340TestVectors {
+		pubKey, err := ParsePubKey(decodeHex(test.publicKey))
+		if err != nil {
+			continue
+		}
+
+		msg := decodeHex(test.message)
+
+		sig, err := ParseSignature(decodeHex(test.signature))
+		if err != nil {
+			continue
+		}
+
+		verify := sig.VerifyMessage(msg, pubKey)
+		if verify != test.verifyResult {
+			t.Fatalf("test #%v: verification mismatch: expected "+
+				"%v, got %v", i, test.verifyResult, verify)
+		}
+		if verify != sig.Verify(msg, pubKey) {
+			t.Fatalf("test #%v: message and hash verification "+
+				"mismatch", i)
+		}
+	}
+}
+
 // TestSchnorrSignNoMutate tests that generating a schnorr signature doesn't
 // modify/mutate the underlying private key.
 func TestSchnorrSignNoMutate(t *testing.T) {
