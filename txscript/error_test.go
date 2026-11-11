@@ -100,6 +100,8 @@ func TestErrorCodeStringer(t *testing.T) {
 		{ErrCodeSeparator, "ErrCodeSeparator"},
 		{ErrInvalidSigHashSingleIndex, "ErrInvalidSigHashSingleIndex"},
 		{ErrDiscourageTemplateHash, "ErrDiscourageTemplateHash"},
+		{ErrDiscourageCheckSigFromStack, "ErrDiscourageCheckSigFromStack"},
+		{ErrDiscourageInternalKey, "ErrDiscourageInternalKey"},
 		{0xffff, "Unknown ErrorCode (65535)"},
 	}
 
