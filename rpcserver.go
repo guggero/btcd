@@ -1294,6 +1294,12 @@ func handleGetBlockChainInfo(s *rpcServer, cmd interface{}, closeChan <-chan str
 		case chaincfg.DeploymentTemplateHash:
 			forkName = "templatehash"
 
+		case chaincfg.DeploymentCheckSigFromStack:
+			forkName = "checksigfromstack"
+
+		case chaincfg.DeploymentInternalKey:
+			forkName = "internalkey"
+
 		default:
 			return nil, &btcjson.RPCError{
 				Code: btcjson.ErrRPCInternal.Code,
