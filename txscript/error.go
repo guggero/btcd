@@ -368,7 +368,8 @@ const (
 	ErrDiscourageUpgradeablePubKeyType
 
 	// ErrTaprootSigInvalid is returned when an invalid taproot key spend
-	// signature is encountered.
+	// signature is encountered, or when the signature verified by
+	// OP_CHECKSIGFROMSTACK is invalid.
 	ErrTaprootSigInvalid
 
 	// ErrTaprootMerkleProofInvalid is returned when the revealed script
