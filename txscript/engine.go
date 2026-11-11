@@ -916,20 +916,21 @@ func (vm *Engine) checkOpSuccess(witnessScript []byte) (bool, error) {
 			continue
 		}
 
-		switch op {
-		// OP_TEMPLATEHASH is non-standard until BIP 446 is active.
-		// Once it is, the op code is executed as part of the script
-		// instead of making it succeed.
-		case OP_TEMPLATEHASH:
-			if vm.hasFlag(ScriptVerifyDiscourageTemplateHash) {
-				errStr := "script contains OP_TEMPLATEHASH " +
-					"op code, which is not active"
+		// An op code that was given a meaning by a soft fork is
+		// non-standard until that soft fork is active. Once it is, the
+		// op code is executed as part of the script instead of making
+		// it succeed.
+		if upgrade, ok := upgradedSuccessOpcodes[op]; ok {
+			if vm.hasFlag(upgrade.discourageFlag) {
+				errStr := fmt.Sprintf("script contains %s op "+
+					"code, which is not active",
+					opcodeArray[op].name)
 				return false, scriptError(
-					ErrDiscourageTemplateHash, errStr,
+					upgrade.discourageErr, errStr,
 				)
 			}
 
-			if vm.hasFlag(ScriptVerifyTemplateHash) {
+			if vm.hasFlag(upgrade.activeFlag) {
 				continue
 			}
 		}
