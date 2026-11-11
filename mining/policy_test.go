@@ -6,12 +6,17 @@ package mining
 
 import (
 	"encoding/hex"
+	"errors"
+	"slices"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/stretchr/testify/require"
 )
 
 // newHashFromStr converts the passed big-endian hex string into a
@@ -165,4 +170,80 @@ func TestCalcPriority(t *testing.T) {
 			continue
 		}
 	}
+}
+
+// TestStandardScriptFlags tests that the flag that discourages the use of a
+// soft-fork is only dropped from the standard script flags once the deployment
+// of that soft-fork is active, independently of any other deployment.
+func TestStandardScriptFlags(t *testing.T) {
+	t.Parallel()
+
+	// isActive returns a function that reports the given deployments as
+	// being active.
+	isActive := func(active ...uint32) func(uint32) (bool, error) {
+		return func(deploymentID uint32) (bool, error) {
+			return slices.Contains(active, deploymentID), nil
+		}
+	}
+
+	// Without any of the deployments being active, the standard flags
+	// are used as they are, which includes all of the discourage flags.
+	flags, err := StandardScriptFlags(isActive())
+	require.NoError(t, err)
+	require.Equal(t, txscript.StandardVerifyFlags, flags)
+
+	var (
+		allDeployments []uint32
+		allFlags       txscript.ScriptFlags
+	)
+	for _, deployment := range discouragedDeployments {
+		allDeployments = append(allDeployments, deployment.deploymentID)
+		allFlags |= deployment.discourageFlag
+
+		// The flag we drop must be part of the standard flags.
+		require.Equal(
+			t, deployment.discourageFlag,
+			txscript.StandardVerifyFlags&deployment.discourageFlag,
+		)
+
+		// An active deployment only drops its own flag.
+		flags, err := StandardScriptFlags(
+			isActive(deployment.deploymentID),
+		)
+		require.NoError(t, err)
+		require.Equal(
+			t, txscript.StandardVerifyFlags&^deployment.discourageFlag,
+			flags,
+		)
+	}
+
+	// These are the deployments we expect to be handled.
+	require.ElementsMatch(t, []uint32{
+		chaincfg.DeploymentTemplateHash,
+		chaincfg.DeploymentCheckSigFromStack,
+		chaincfg.DeploymentInternalKey,
+	}, allDeployments)
+	require.Equal(
+		t, txscript.ScriptVerifyDiscourageTemplateHash|
+			txscript.ScriptVerifyDiscourageCheckSigFromStack|
+			txscript.ScriptVerifyDiscourageInternalKey, allFlags,
+	)
+
+	// With all of the deployments being active, none of the discourage
+	// flags is left, while the flags that enforce the soft-forks remain.
+	flags, err = StandardScriptFlags(isActive(allDeployments...))
+	require.NoError(t, err)
+	require.Equal(t, txscript.StandardVerifyFlags&^allFlags, flags)
+
+	enforceFlags := txscript.ScriptVerifyTemplateHash |
+		txscript.ScriptVerifyCheckSigFromStack |
+		txscript.ScriptVerifyInternalKey
+	require.Equal(t, enforceFlags, flags&enforceFlags)
+
+	// An error looking up the state of a deployment is returned.
+	errDeployment := errors.New("deployment error")
+	_, err = StandardScriptFlags(func(uint32) (bool, error) {
+		return false, errDeployment
+	})
+	require.ErrorIs(t, err, errDeployment)
 }

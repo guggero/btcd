@@ -29,6 +29,14 @@ var discouragedDeployments = []struct {
 	// OP_TEMPLATEHASH, BIP 446.
 	deploymentID:   chaincfg.DeploymentTemplateHash,
 	discourageFlag: txscript.ScriptVerifyDiscourageTemplateHash,
+}, {
+	// OP_CHECKSIGFROMSTACK, BIP 348.
+	deploymentID:   chaincfg.DeploymentCheckSigFromStack,
+	discourageFlag: txscript.ScriptVerifyDiscourageCheckSigFromStack,
+}, {
+	// OP_INTERNALKEY, BIP 349.
+	deploymentID:   chaincfg.DeploymentInternalKey,
+	discourageFlag: txscript.ScriptVerifyDiscourageInternalKey,
 }}
 
 // StandardScriptFlags returns the script flags a transaction must be valid

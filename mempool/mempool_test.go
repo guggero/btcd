@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/v2"
 	"github.com/btcsuite/btcd/chaincfg/v2"
 	"github.com/btcsuite/btcd/chainhash/v2"
@@ -1953,4 +1954,116 @@ func TestTemplateHashPolicy(t *testing.T) {
 
 	spendTxHash := spendTx.TxHash()
 	require.True(t, harness.txPool.IsTransactionInPool(&spendTxHash))
+}
+
+// TestTapscriptOpcodePolicy asserts that a transaction spending an output
+// through OP_CHECKSIGFROMSTACK or OP_INTERNALKEY is only accepted to the
+// mempool once the deployment of the respective op code is active, no matter
+// what the state of any other deployment is.
+func TestTapscriptOpcodePolicy(t *testing.T) {
+	t.Parallel()
+
+	harness, _, err := newPoolHarness(&chaincfg.MainNetParams)
+	require.NoError(t, err)
+
+	// The harness doesn't know about deployments, so we control their
+	// state ourselves. Validating a transaction with witness data also
+	// requires the cache for the sighash midstate.
+	harness.txPool.cfg.HashCache = txscript.NewHashCache(1)
+
+	inactive := make(map[uint32]struct{})
+	harness.txPool.cfg.IsDeploymentActive = func(id uint32) (bool, error) {
+		_, ok := inactive[id]
+		return !ok, nil
+	}
+
+	// The key that is used as the internal key of the outputs, and that
+	// signs the message that is verified.
+	internalKey := harness.signKey.PubKey()
+	internalKeyBytes := schnorr.SerializePubKey(internalKey)
+
+	msg := chainhash.HashB([]byte("message"))
+	sig, err := schnorr.Sign(harness.signKey, msg)
+	require.NoError(t, err)
+
+	internalKeyScript, err := txscript.NewScriptBuilder().
+		AddOp(txscript.OP_INTERNALKEY).AddData(internalKeyBytes).
+		AddOp(txscript.OP_EQUAL).Script()
+	require.NoError(t, err)
+
+	checkSigScript, err := txscript.NewScriptBuilder().
+		AddData(sig.Serialize()).AddData(msg).
+		AddData(internalKeyBytes).
+		AddOp(txscript.OP_CHECKSIGFROMSTACK).Script()
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name         string
+		deploymentID uint32
+		leafScript   []byte
+	}{{
+		name:         "OP_INTERNALKEY",
+		deploymentID: chaincfg.DeploymentInternalKey,
+		leafScript:   internalKeyScript,
+	}, {
+		name:         "OP_CHECKSIGFROMSTACK",
+		deploymentID: chaincfg.DeploymentCheckSigFromStack,
+		leafScript:   checkSigScript,
+	}}
+
+	for idx, tc := range testCases {
+		// Create an output that is spent through the leaf script, and
+		// add it to the UTXO set of the chain.
+		tree := txscript.AssembleTaprootScriptTree(
+			txscript.NewBaseTapLeaf(tc.leafScript),
+		)
+		rootHash := tree.RootNode.TapHash()
+		outputKey := txscript.ComputeTaprootOutputKey(
+			internalKey, rootHash[:],
+		)
+		pkScript, err := txscript.PayToTaprootScript(outputKey)
+		require.NoError(t, err)
+
+		ctrlBlock := tree.LeafMerkleProofs[0].ToControlBlock(internalKey)
+		ctrlBlockBytes, err := ctrlBlock.ToBytes()
+		require.NoError(t, err)
+
+		fundingTx := wire.NewMsgTx(1)
+		fundingTx.AddTxIn(wire.NewTxIn(
+			&wire.OutPoint{Index: uint32(idx + 1)}, nil, nil,
+		))
+		fundingTx.AddTxOut(wire.NewTxOut(100_000, pkScript))
+		harness.chain.utxos.AddTxOuts(
+			btcutil.NewTx(fundingTx), harness.chain.BestHeight(),
+		)
+
+		spendTx := wire.NewMsgTx(1)
+		spendTx.AddTxIn(wire.NewTxIn(
+			&wire.OutPoint{Hash: fundingTx.TxHash()}, nil,
+			wire.TxWitness{tc.leafScript, ctrlBlockBytes},
+		))
+		spendTx.AddTxOut(wire.NewTxOut(90_000, harness.payScript))
+
+		// Before the activation, the op code is discouraged, even
+		// though all the other deployments are active.
+		inactive[tc.deploymentID] = struct{}{}
+		_, err = harness.txPool.ProcessTransaction(
+			btcutil.NewTx(spendTx), false, false, 0,
+		)
+		require.ErrorContains(t, err, tc.name)
+		require.ErrorContains(t, err, "not active")
+
+		// Once active, the spend is accepted.
+		delete(inactive, tc.deploymentID)
+		_, err = harness.txPool.ProcessTransaction(
+			btcutil.NewTx(spendTx), false, false, 0,
+		)
+		require.NoError(t, err, tc.name)
+
+		spendTxHash := spendTx.TxHash()
+		require.True(
+			t, harness.txPool.IsTransactionInPool(&spendTxHash),
+			tc.name,
+		)
+	}
 }
