@@ -431,6 +431,15 @@ const (
 	// signatures).
 	ErrDisallowedSigHashType
 
+	// ---------------------------------------------
+	// Failures related to tapscript op code upgrades.
+	// ---------------------------------------------
+
+	// ErrDiscourageTemplateHash is returned if
+	// ScriptVerifyDiscourageTemplateHash is active, and an OP_TEMPLATEHASH
+	// op code is encountered during tapscript validation.
+	ErrDiscourageTemplateHash
+
 	// numErrorCodes is the maximum error code number used in tests.  This
 	// entry MUST be the last entry in the enum.
 	numErrorCodes
@@ -521,6 +530,7 @@ var errorCodeStrings = map[ErrorCode]string{
 	ErrCodeSeparator:                       "ErrCodeSeparator",
 	ErrInvalidSigHashSingleIndex:           "ErrInvalidSigHashSingleIndex",
 	ErrDisallowedSigHashType:               "ErrDisallowedSigHashType",
+	ErrDiscourageTemplateHash:              "ErrDiscourageTemplateHash",
 }
 
 // String returns the ErrorCode as a human-readable name.

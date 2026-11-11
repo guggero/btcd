@@ -57,7 +57,9 @@ const allScriptFlags = ScriptBip16 |
 	ScriptVerifyDiscourageUpgradeableTaprootVersion |
 	ScriptVerifyDiscourageOpSuccess |
 	ScriptVerifyDiscourageUpgradeablePubkeyType |
-	ScriptVerifyConstScriptCode
+	ScriptVerifyConstScriptCode |
+	ScriptVerifyTemplateHash |
+	ScriptVerifyDiscourageTemplateHash
 
 // scriptTestWitnessOffset returns the field offset caused by optional witness
 // data at the beginning of a script_tests.json entry.
@@ -251,6 +253,10 @@ func parseScriptFlags(flagStr string) (ScriptFlags, error) {
 			flags |= ScriptVerifyTaproot
 		case "CONST_SCRIPTCODE":
 			flags |= ScriptVerifyConstScriptCode
+		case "TEMPLATEHASH":
+			flags |= ScriptVerifyTemplateHash
+		case "DISCOURAGE_TEMPLATEHASH":
+			flags |= ScriptVerifyDiscourageTemplateHash
 		default:
 			return flags, fmt.Errorf("invalid flag: %s", flag)
 		}
