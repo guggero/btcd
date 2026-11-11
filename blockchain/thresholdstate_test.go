@@ -324,11 +324,37 @@ func TestThresholdStateTransition(t *testing.T) {
 	}
 }
 
-// TestTemplateHashDeployment asserts that the BIP 446 deployment is always
+// TestTapscriptOpcodeDeployments asserts that the deployments of BIP 446, BIP
+// 348 and BIP 349 are always active on the networks used for testing, and that
+// they can't be activated on any other network, no matter how many blocks
+// signal for them.
+func TestTapscriptOpcodeDeployments(t *testing.T) {
+	deploymentIDs := []uint32{
+		chaincfg.DeploymentTemplateHash,
+		chaincfg.DeploymentCheckSigFromStack,
+		chaincfg.DeploymentInternalKey,
+	}
+
+	// These are the deployments that add a script flag when blocks are
+	// validated.
+	require.Len(t, tapscriptOpcodeDeployments, len(deploymentIDs))
+	for idx, deploymentID := range deploymentIDs {
+		require.Equal(
+			t, deploymentID,
+			tapscriptOpcodeDeployments[idx].deploymentID,
+		)
+	}
+
+	for _, deploymentID := range deploymentIDs {
+		testTapscriptOpcodeDeployment(t, deploymentID)
+	}
+}
+
+// testTapscriptOpcodeDeployment asserts that the given deployment is always
 // active on the networks used for testing, and that it can't be activated on
 // any other network, no matter how many blocks signal for it.
-func TestTemplateHashDeployment(t *testing.T) {
-	const deploymentID = chaincfg.DeploymentTemplateHash
+func testTapscriptOpcodeDeployment(t *testing.T, deploymentID uint32) {
+	t.Helper()
 
 	alwaysActive := []*chaincfg.Params{
 		&chaincfg.RegressionNetParams, &chaincfg.SimNetParams,

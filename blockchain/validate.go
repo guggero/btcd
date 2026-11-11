@@ -1111,6 +1111,26 @@ func CheckTransactionInputs(tx *btcutil.Tx, txHeight int32, utxoView *UtxoViewpo
 	return txFeeInSatoshi, nil
 }
 
+// tapscriptOpcodeDeployments maps the deployments of the soft-forks that give
+// an OP_SUCCESS op code a meaning in tapscript to the script flag that makes
+// the script engine execute the op code accordingly.
+var tapscriptOpcodeDeployments = []struct {
+	deploymentID uint32
+	scriptFlag   txscript.ScriptFlags
+}{{
+	// OP_TEMPLATEHASH, BIP 446.
+	deploymentID: chaincfg.DeploymentTemplateHash,
+	scriptFlag:   txscript.ScriptVerifyTemplateHash,
+}, {
+	// OP_CHECKSIGFROMSTACK, BIP 348.
+	deploymentID: chaincfg.DeploymentCheckSigFromStack,
+	scriptFlag:   txscript.ScriptVerifyCheckSigFromStack,
+}, {
+	// OP_INTERNALKEY, BIP 349.
+	deploymentID: chaincfg.DeploymentInternalKey,
+	scriptFlag:   txscript.ScriptVerifyInternalKey,
+}}
+
 // checkConnectBlock performs several checks to confirm connecting the passed
 // block to the chain represented by the passed view does not violate any rules.
 // In addition, the passed view is updated to spend all of the referenced
@@ -1366,16 +1386,19 @@ func (b *BlockChain) checkConnectBlock(node *blockNode, block *btcutil.Block, vi
 		scriptFlags |= txscript.ScriptVerifyTaproot
 	}
 
-	// Enforce OP_TEMPLATEHASH once the BIP 446 soft-fork is active. Until
-	// then, the op code remains an OP_SUCCESS.
-	templateHashState, err := b.deploymentState(
-		node.parent, chaincfg.DeploymentTemplateHash,
-	)
-	if err != nil {
-		return err
-	}
-	if templateHashState == ThresholdActive {
-		scriptFlags |= txscript.ScriptVerifyTemplateHash
+	// Enforce each of the tapscript op codes that replace an OP_SUCCESS
+	// once its soft-fork is active. Until then, the op code remains an
+	// OP_SUCCESS.
+	for _, opcodeDeployment := range tapscriptOpcodeDeployments {
+		state, err := b.deploymentState(
+			node.parent, opcodeDeployment.deploymentID,
+		)
+		if err != nil {
+			return err
+		}
+		if state == ThresholdActive {
+			scriptFlags |= opcodeDeployment.scriptFlag
+		}
 	}
 
 	// Now that the inexpensive checks are done and have passed, verify the
