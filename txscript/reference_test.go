@@ -20,6 +20,7 @@ import (
 
 	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/btcsuite/btcd/wire/v2"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -1132,6 +1133,10 @@ type taprootJsonTest struct {
 
 	Comment string `json:"comment"`
 
+	// Final denotes that a successful spend must stay valid no matter
+	// which additional consensus flags are set.
+	Final bool `json:"final"`
+
 	Success *inputWitness `json:"success"`
 
 	Failure *inputWitness `json:"failure"`
@@ -1302,6 +1307,276 @@ func TestTaprootReferenceTests(t *testing.T) {
 	err := filepath.Walk(filePath, testFunc)
 	if err != nil {
 		t.Fatalf("unable to execute taproot test vectors: %v", err)
+	}
+}
+
+// allConsensusFlags returns all valid combinations of the script flags that
+// are, or can become, part of the consensus rules. This mirrors the flag
+// combinations Bitcoin Core validates its script asset tests with.
+func allConsensusFlags() []ScriptFlags {
+	consensusFlags := []ScriptFlags{
+		ScriptBip16,
+		ScriptVerifyDERSignatures,
+		ScriptStrictMultiSig,
+		ScriptVerifyCheckLockTimeVerify,
+		ScriptVerifyCheckSequenceVerify,
+		ScriptVerifyWitness,
+		ScriptVerifyTaproot,
+		ScriptVerifyTemplateHash,
+	}
+
+	var allFlags []ScriptFlags
+	for i := 0; i < 1<<len(consensusFlags); i++ {
+		var flags ScriptFlags
+		for bit, flag := range consensusFlags {
+			if i&(1<<bit) != 0 {
+				flags |= flag
+			}
+		}
+
+		// Segwit requires P2SH, and taproot requires segwit.
+		hasFlag := func(flag ScriptFlags) bool {
+			return flags&flag == flag
+		}
+		if hasFlag(ScriptVerifyWitness) && !hasFlag(ScriptBip16) {
+			continue
+		}
+		if hasFlag(ScriptVerifyTaproot) &&
+			!hasFlag(ScriptVerifyWitness) {
+
+			continue
+		}
+
+		allFlags = append(allFlags, flags)
+	}
+
+	return allFlags
+}
+
+// parseTestPrevOuts decodes the serialized previous outputs of a test case
+// and returns them along with a fetcher that maps them to the inputs of the
+// given transaction.
+func parseTestPrevOuts(t *testing.T, tx *wire.MsgTx,
+	prevOutStrings []string) ([]*wire.TxOut, *MultiPrevOutFetcher) {
+
+	t.Helper()
+
+	require.Len(t, prevOutStrings, len(tx.TxIn))
+
+	prevOuts := make([]*wire.TxOut, 0, len(prevOutStrings))
+	prevOutFetcher := NewMultiPrevOutFetcher(nil)
+	for i, prevOutString := range prevOutStrings {
+		prevOutBytes, err := hex.DecodeString(prevOutString)
+		require.NoError(t, err)
+
+		var txOut wire.TxOut
+		err = wire.ReadTxOut(bytes.NewReader(prevOutBytes), 0, 0, &txOut)
+		require.NoError(t, err)
+
+		prevOuts = append(prevOuts, &txOut)
+		prevOutFetcher.AddPrevOut(tx.TxIn[i].PreviousOutPoint, &txOut)
+	}
+
+	return prevOuts, prevOutFetcher
+}
+
+// executeTestInput validates a single input of the transaction with the given
+// script flags.
+func executeTestInput(tx *wire.MsgTx, idx int, prevOut *wire.TxOut,
+	prevOutFetcher PrevOutputFetcher, flags ScriptFlags,
+	hashCache *TxSigHashes) error {
+
+	vm, err := NewEngine(
+		prevOut.PkScript, tx, idx, flags, nil, hashCache,
+		prevOut.Value, prevOutFetcher,
+	)
+	if err != nil {
+		return err
+	}
+
+	return vm.Execute()
+}
+
+// executeScriptAssetTest validates a test case in the format of the Bitcoin
+// Core script asset tests the same way Bitcoin Core does: A successful spend
+// must be valid with every subset of the consensus flags of the test case, or
+// with all combinations of consensus flags if the test case is final. A failing
+// spend must be invalid with every superset of the flags of the test case.
+func executeScriptAssetTest(t *testing.T, testCase taprootJsonTest) {
+	t.Helper()
+
+	txBytes, err := hex.DecodeString(testCase.Tx)
+	require.NoError(t, err)
+	tx, err := newTxFromBytes(txBytes)
+	require.NoError(t, err)
+
+	require.Less(t, testCase.Index, len(tx.TxIn))
+	prevOuts, prevOutFetcher := parseTestPrevOuts(t, tx, testCase.Prevouts)
+	prevOut := prevOuts[testCase.Index]
+
+	testFlags, err := parseScriptFlags(testCase.Flags)
+	require.NoError(t, err)
+
+	// setInput sets the signature script and witness of the input under
+	// test.
+	setInput := func(input *inputWitness) {
+		txIn := tx.TxIn[testCase.Index]
+		txIn.SignatureScript, err = hex.DecodeString(input.ScriptSig)
+		require.NoError(t, err)
+
+		txIn.Witness = make(wire.TxWitness, 0, len(input.Witness))
+		for _, witnessStr := range input.Witness {
+			witElem, err := hex.DecodeString(witnessStr)
+			require.NoError(t, err)
+
+			txIn.Witness = append(txIn.Witness, witElem)
+		}
+	}
+
+	if testCase.Success != nil {
+		setInput(testCase.Success)
+		hashCache := NewTxSigHashes(tx, prevOutFetcher)
+
+		for _, flags := range allConsensusFlags() {
+			if !testCase.Final && flags&testFlags != flags {
+				continue
+			}
+
+			err := executeTestInput(
+				tx, testCase.Index, prevOut, prevOutFetcher,
+				flags, hashCache,
+			)
+			require.NoErrorf(
+				t, err, "test (%v) failed to execute with "+
+					"flags %b", testCase.Comment, flags,
+			)
+		}
+	}
+
+	if testCase.Failure != nil {
+		setInput(testCase.Failure)
+		hashCache := NewTxSigHashes(tx, prevOutFetcher)
+
+		for _, flags := range allConsensusFlags() {
+			if flags&testFlags != testFlags {
+				continue
+			}
+
+			err := executeTestInput(
+				tx, testCase.Index, prevOut, prevOutFetcher,
+				flags, hashCache,
+			)
+			require.Errorf(
+				t, err, "test (%v) succeeded with flags %b, "+
+					"should fail", testCase.Comment, flags,
+			)
+		}
+	}
+}
+
+// TestTemplateHashAssetTests validates the script asset tests of BIP 446,
+// which were generated with the functional test framework Bitcoin Core uses
+// for taproot. Besides the op code itself, they cover that it remains an
+// OP_SUCCESS as long as it isn't active and that it didn't get a meaning
+// outside of tapscript.
+func TestTemplateHashAssetTests(t *testing.T) {
+	t.Parallel()
+
+	testJson, err := os.ReadFile("data/bip446/script_assets_test.json")
+	require.NoError(t, err)
+
+	// The last test case is followed by a comma, which we need to remove
+	// for the file to be valid JSON.
+	testJson = bytes.TrimSpace(testJson)
+	testJson = bytes.TrimSuffix(testJson, []byte("]"))
+	testJson = bytes.TrimSpace(testJson)
+	testJson = bytes.TrimSuffix(testJson, []byte(","))
+	testJson = append(testJson, ']')
+
+	var testCases []taprootJsonTest
+	require.NoError(t, json.Unmarshal(testJson, &testCases))
+	require.NotEmpty(t, testCases)
+
+	for i, testCase := range testCases {
+		testName := fmt.Sprintf("%v:%d", testCase.Comment, i)
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+
+			executeScriptAssetTest(t, testCase)
+		})
+	}
+}
+
+// TestTemplateHashBasicTests validates the basic test vectors of BIP 446. Each
+// of them spends an output that commits to the template hash of a transaction
+// and asserts that the spend is only valid if none of the fields the template
+// hash commits to were changed.
+func TestTemplateHashBasicTests(t *testing.T) {
+	t.Parallel()
+
+	testJson, err := os.ReadFile("data/bip446/basics.json")
+	require.NoError(t, err)
+
+	var testCases []struct {
+		SpentOutputs []string `json:"spent_outputs"`
+		SpendingTx   string   `json:"spending_tx"`
+		InputIndex   int      `json:"input_index"`
+		Valid        bool     `json:"valid"`
+		Comment      string   `json:"comment"`
+	}
+	require.NoError(t, json.Unmarshal(testJson, &testCases))
+	require.NotEmpty(t, testCases)
+
+	// The test vectors are meant to be validated with the consensus rules
+	// that are active today, plus BIP 446.
+	const flags = ScriptBip16 |
+		ScriptVerifyDERSignatures |
+		ScriptStrictMultiSig |
+		ScriptVerifyCheckLockTimeVerify |
+		ScriptVerifyCheckSequenceVerify |
+		ScriptVerifyWitness |
+		ScriptVerifyTaproot |
+		ScriptVerifyTemplateHash
+
+	for _, testCase := range testCases {
+		t.Run(testCase.Comment, func(t *testing.T) {
+			t.Parallel()
+
+			txBytes, err := hex.DecodeString(testCase.SpendingTx)
+			require.NoError(t, err)
+			tx, err := newTxFromBytes(txBytes)
+			require.NoError(t, err)
+
+			require.Less(t, testCase.InputIndex, len(tx.TxIn))
+			prevOuts, prevOutFetcher := parseTestPrevOuts(
+				t, tx, testCase.SpentOutputs,
+			)
+			prevOut := prevOuts[testCase.InputIndex]
+
+			// The result must not depend on whether the sighash
+			// midstate was pre-computed.
+			hashCaches := []*TxSigHashes{
+				NewTxSigHashes(tx, prevOutFetcher), nil,
+			}
+			for _, hashCache := range hashCaches {
+				err := executeTestInput(
+					tx, testCase.InputIndex, prevOut,
+					prevOutFetcher, flags, hashCache,
+				)
+				if testCase.Valid {
+					require.NoError(t, err)
+					continue
+				}
+
+				// All the scripts compare the template hash
+				// for equality, so that's the only way a
+				// spend is expected to fail.
+				require.Truef(
+					t, IsErrorCode(err, ErrEvalFalse),
+					"unexpected error: %v", err,
+				)
+			}
+		})
 	}
 }
 
