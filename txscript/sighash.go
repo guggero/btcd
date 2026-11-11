@@ -642,3 +642,87 @@ func CalcTapscriptSignaturehash(sigHashes *TxSigHashes, hType SigHashType,
 		sigHashes, hType, tx, idx, prevOutFetcher, opts...,
 	)
 }
+
+// tagTemplateHash is the BIP 340 tagged hash tag used to compute the BIP 446
+// template hash.
+var tagTemplateHash = []byte("TemplateHash")
+
+// templateHashMaxMsgSize is the size of the message hashed into the template
+// hash when an annex is present: the transaction version and locktime, the
+// sequences and outputs digests, the annex flag, the input index and the
+// annex digest.
+const templateHashMaxMsgSize = 4 + 4 + chainhash.HashSize +
+	chainhash.HashSize + 1 + 4 + chainhash.HashSize
+
+// calcTemplateHash computes the BIP 446 template hash of the given input. The
+// caller must make sure the input index is valid for the transaction.
+func calcTemplateHash(sigHashes *TxSigHashes, tx *wire.MsgTx, idx int,
+	annex []byte) chainhash.Hash {
+
+	// The template hash re-uses the sha_sequences and sha_outputs digests
+	// of BIP 341. Unlike the other pre-computed digests they don't depend
+	// on the previous outputs, so we can always fall back to calculating
+	// them from the transaction alone.
+	var shaSequences, shaOutputs chainhash.Hash
+	if sigHashes != nil {
+		shaSequences = sigHashes.HashSequenceV1
+		shaOutputs = sigHashes.HashOutputsV1
+	} else {
+		shaSequences = calcHashSequence(tx)
+		shaOutputs = calcHashOutputs(tx)
+	}
+
+	// First comes the data that commits to the transaction as a whole.
+	msg := make([]byte, 0, templateHashMaxMsgSize)
+	msg = binary.LittleEndian.AppendUint32(msg, uint32(tx.Version))
+	msg = binary.LittleEndian.AppendUint32(msg, tx.LockTime)
+	msg = append(msg, shaSequences[:]...)
+	msg = append(msg, shaOutputs[:]...)
+
+	// Then the data about this input: whether it has an annex, its index
+	// and, if there is one, the digest of the annex as defined by BIP 341,
+	// which includes the compact size length prefix.
+	if annex != nil {
+		msg = append(msg, 1)
+	} else {
+		msg = append(msg, 0)
+	}
+	msg = binary.LittleEndian.AppendUint32(msg, uint32(idx))
+	if annex != nil {
+		// It's just a bytes.Buffer which never returns an error on
+		// write.
+		var b bytes.Buffer
+		_ = wire.WriteVarBytes(&b, 0, annex)
+
+		shaAnnex := chainhash.HashH(b.Bytes())
+		msg = append(msg, shaAnnex[:]...)
+	}
+
+	return *chainhash.TaggedHash(tagTemplateHash, msg)
+}
+
+// CalcTemplateHash computes the template hash of the specified input of the
+// target transaction as defined by BIP 446. This is the value OP_TEMPLATEHASH
+// pushes onto the stack when the input is spent through a tapscript leaf.
+//
+// The template hash commits to the version, locktime, all input sequences and
+// all outputs of the transaction, as well as the index of the input and its
+// annex. It doesn't commit to any of the previous outputs being spent.
+//
+// The TxSigHashes pre-computed sighash midstate is optional, the required
+// digests are calculated from the transaction if it's nil. The annex must be
+// the full annex of the input, including the 0x50 tag, or nil if the input
+// doesn't have one.
+func CalcTemplateHash(sigHashes *TxSigHashes, tx *wire.MsgTx, idx int,
+	annex []byte) ([]byte, error) {
+
+	// As a sanity check, ensure the passed input index for the transaction
+	// is valid.
+	if idx < 0 || idx >= len(tx.TxIn) {
+		return nil, fmt.Errorf("idx %d but %d txins", idx, len(tx.TxIn))
+	}
+
+	templateHash := calcTemplateHash(sigHashes, tx, idx, annex)
+
+	return templateHash[:], nil
+}
