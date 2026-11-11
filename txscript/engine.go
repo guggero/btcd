@@ -180,6 +180,10 @@ type taprootExecutionCtx struct {
 	sigOpsBudget int32
 
 	mustSucceed bool
+
+	// templateHash caches the BIP 446 template hash of the input, which is
+	// calculated the first time OP_TEMPLATEHASH is executed.
+	templateHash *chainhash.Hash
 }
 
 // sigOpsDelta is both the starting budget for sig ops for tapscript
@@ -752,21 +756,20 @@ func (vm *Engine) verifyWitnessProgram(witness wire.TxWitness) error {
 			// check for OP_SUCCESS only in a base tapscript leaf.
 			// Future leaves have unknown execution rules, so their bytes
 			// must remain opaque to preserve leaf-version policy below.
-			if controlBlock.LeafVersion == BaseLeafVersion &&
-				ScriptHasOpSuccess(witnessScript) {
-
-				// An op success op code has been found, however if
-				// the policy flag forbidding them is active, then
+			if controlBlock.LeafVersion == BaseLeafVersion {
+				// If an op success op code is found while the
+				// policy flag forbidding it is active, then
 				// we'll return an error.
-				if vm.hasFlag(ScriptVerifyDiscourageOpSuccess) {
-					errStr := fmt.Sprintf("script contains " +
-						"OP_SUCCESS op code")
-					return scriptError(ErrDiscourageOpSuccess, errStr)
+				hasOpSuccess, err := vm.checkOpSuccess(witnessScript)
+				if err != nil {
+					return err
 				}
 
 				// Otherwise, the script passes scott free.
-				vm.taprootCtx.mustSucceed = true
-				return nil
+				if hasOpSuccess {
+					vm.taprootCtx.mustSucceed = true
+					return nil
+				}
 			}
 
 			// Before we proceed with normal execution, check the
@@ -869,6 +872,54 @@ func (vm *Engine) verifyWitnessProgram(witness wire.TxWitness) error {
 	}
 
 	return nil
+}
+
+// checkOpSuccess returns true if the passed tapscript contains an OP_SUCCESS
+// op code, which makes the script succeed without being executed. An error is
+// returned if such an op code is found while the policy flag discouraging its
+// use is set.
+//
+// The op codes are checked in the order they appear in the script, and the
+// first OP_SUCCESS decides the outcome. An op code that was given a meaning by
+// a soft fork stops being an OP_SUCCESS once the corresponding flag is set.
+func (vm *Engine) checkOpSuccess(witnessScript []byte) (bool, error) {
+	const scriptVersion = 0
+	tokenizer := MakeScriptTokenizer(scriptVersion, witnessScript)
+	for tokenizer.Next() {
+		op := tokenizer.Opcode()
+		if _, ok := successOpcodes[op]; !ok {
+			continue
+		}
+
+		switch op {
+		// OP_TEMPLATEHASH is non-standard until BIP 446 is active.
+		// Once it is, the op code is executed as part of the script
+		// instead of making it succeed.
+		case OP_TEMPLATEHASH:
+			if vm.hasFlag(ScriptVerifyDiscourageTemplateHash) {
+				errStr := "script contains OP_TEMPLATEHASH " +
+					"op code, which is not active"
+				return false, scriptError(
+					ErrDiscourageTemplateHash, errStr,
+				)
+			}
+
+			if vm.hasFlag(ScriptVerifyTemplateHash) {
+				continue
+			}
+		}
+
+		if vm.hasFlag(ScriptVerifyDiscourageOpSuccess) {
+			errStr := "script contains OP_SUCCESS op code"
+			return false, scriptError(ErrDiscourageOpSuccess, errStr)
+		}
+
+		return true, nil
+	}
+
+	// A script that fails to parse has no OP_SUCCESS in the part that
+	// could be parsed, the parse error itself is reported by the caller.
+	return false, nil
 }
 
 // DisasmPC returns the string for the disassembly of the opcode that will be
