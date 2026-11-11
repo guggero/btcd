@@ -50,7 +50,9 @@ const (
 		ScriptVerifyDiscourageUpgradeablePubkeyType |
 		ScriptVerifyConstScriptCode |
 		ScriptVerifyTemplateHash |
-		ScriptVerifyDiscourageTemplateHash
+		ScriptVerifyDiscourageTemplateHash |
+		ScriptVerifyInternalKey |
+		ScriptVerifyDiscourageInternalKey
 )
 
 // PayToAnchorScript is the fixed script bytes for a pay-to-anchor output.

@@ -229,6 +229,11 @@ type taprootExecutionCtx struct {
 	// templateHash caches the BIP 446 template hash of the input, which is
 	// calculated the first time OP_TEMPLATEHASH is executed.
 	templateHash *chainhash.Hash
+
+	// internalKey is the 32-byte x-only taproot internal key as revealed
+	// in the control block, which is what OP_INTERNALKEY pushes onto the
+	// stack as defined in BIP 349.
+	internalKey []byte
 }
 
 // sigOpsDelta is both the starting budget for sig ops for tapscript
@@ -875,6 +880,14 @@ func (vm *Engine) verifyWitnessProgram(witness wire.TxWitness) error {
 			vm.taprootCtx.tapLeafHash = NewBaseTapLeaf(
 				witnessScript,
 			).TapHash()
+
+			// We also keep the internal key around. The taproot
+			// commitment we verified above proves that it is the
+			// internal key of the output being spent. It directly
+			// follows the first byte of the control block, which
+			// encodes the leaf version and the output key parity.
+			rawControlBlock := witness[len(witness)-1]
+			vm.taprootCtx.internalKey = rawControlBlock[1:ControlBlockBaseSize]
 
 			// Otherwise, we'll now "recurse" one level deeper, and
 			// set the remaining witness (leaving off the annex and

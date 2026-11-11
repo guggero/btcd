@@ -78,7 +78,7 @@ func TestOpcodeDisasm(t *testing.T) {
 		0xfa: "OP_SMALLINTEGER", 0xfb: "OP_PUBKEYS",
 		0xfd: "OP_PUBKEYHASH", 0xfe: "OP_PUBKEY",
 		0xff: "OP_INVALIDOPCODE", 0xba: "OP_CHECKSIGADD",
-		0xce: "OP_TEMPLATEHASH",
+		0xce: "OP_TEMPLATEHASH", 0xcb: "OP_INTERNALKEY",
 	}
 	for opcodeVal, expectedStr := range expectedStrings {
 		var data []byte
@@ -126,6 +126,10 @@ func TestOpcodeDisasm(t *testing.T) {
 		// OP_UNKNOWN#.
 		case opcodeVal >= 0xbb && opcodeVal <= 0xf9 || opcodeVal == 0xfc:
 			switch opcodeVal {
+			// OP_UNKNOWN203 a.k.a 0xcb is now OP_INTERNALKEY.
+			case 0xcb:
+				expectedStr = "OP_INTERNALKEY"
+
 			// OP_UNKNOWN206 a.k.a 0xce is now OP_TEMPLATEHASH.
 			case 0xce:
 				expectedStr = "OP_TEMPLATEHASH"
@@ -202,6 +206,10 @@ func TestOpcodeDisasm(t *testing.T) {
 			// OP_UNKNOWN186 a.k.a 0xba is now OP_CHECKSIGADD.
 			case 0xba:
 				expectedStr = "OP_CHECKSIGADD"
+
+			// OP_UNKNOWN203 a.k.a 0xcb is now OP_INTERNALKEY.
+			case 0xcb:
+				expectedStr = "OP_INTERNALKEY"
 
 			// OP_UNKNOWN206 a.k.a 0xce is now OP_TEMPLATEHASH.
 			case 0xce:
