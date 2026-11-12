@@ -3,6 +3,7 @@
 package schnorr
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -32,6 +33,15 @@ var (
 		0x68, 0x6d, 0x71, 0xe8, 0x7f, 0x39, 0x4f, 0x79,
 		0x9c, 0x00, 0xa5, 0x21, 0x03, 0xcb, 0x4e, 0x17,
 	}
+
+	// rfc6979ExtraDataMsgV0 is the extra data to feed to RFC6979 when
+	// generating the deterministic nonce for a BIP-340 signature over a
+	// message that isn't 32 bytes long. The nonce is derived from the hash
+	// of such a message, so different extra data is needed to never end up
+	// with the nonce of the 32-byte message that is equal to that hash.
+	//
+	// It is equal to SHA-256([]byte("BIP-340/message")).
+	rfc6979ExtraDataMsgV0 = sha256.Sum256([]byte("BIP-340/message"))
 )
 
 // Signature is a type representing a Schnorr signature.
@@ -353,7 +363,8 @@ func schnorrSign(privKey, nonce *btcec.ModNScalar, pubKey *btcec.PublicKey, hash
 	//
 	// If Verify(bytes(P), m, sig) fails, abort.
 	if !opts.fastSign {
-		if err := schnorrVerify(sig, hash, pBytes); err != nil {
+		err := schnorrVerifyMessage(sig, hash, pBytes)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -418,6 +429,56 @@ func CustomNonce(auxData [32]byte) SignOption {
 func Sign(privKey *btcec.PrivateKey, hash []byte,
 	signOpts ...SignOption) (*Signature, error) {
 
+	// Step 2 of the algorithm described in sign.
+	//
+	// Fail if m is not 32 bytes
+	if len(hash) != ScalarSize {
+		str := fmt.Sprintf("wrong size for message hash (got %v, want %v)",
+			len(hash), ScalarSize)
+		return nil, signatureError(ecdsa_schnorr.ErrInvalidHashLen, str)
+	}
+
+	return sign(privKey, hash, hash, rfc6979ExtraDataV0[:], signOpts...)
+}
+
+// SignMessage generates a BIP-340 signature over the secp256k1 curve for the
+// provided message of any length using the given private key. Unlike Sign, the
+// message doesn't have to be a hash: BIP-340 itself doesn't restrict the size
+// of the message, and a signature over a message of another size is what
+// OP_CHECKSIGFROMSTACK (BIP 348) verifies.
+//
+// For a message of 32 bytes this is the same as Sign, including the signature
+// that is produced. The signature of a message of any other size is
+// deterministic and canonical as well. If CustomNonce is used, the nonce is
+// derived as BIP-340 describes, which covers messages of any size. Otherwise
+// the RFC6979 nonce is derived from the SHA-256 hash of the message, using
+// different extra data than for a 32-byte message. That keeps the nonce of a
+// message apart from the nonce of the 32-byte message that happens to be its
+// hash: signing both with the same nonce would reveal the private key.
+//
+// The same caveat about variable time aspects as for Sign applies.
+func SignMessage(privKey *btcec.PrivateKey, msg []byte,
+	signOpts ...SignOption) (*Signature, error) {
+
+	if len(msg) == ScalarSize {
+		return Sign(privKey, msg, signOpts...)
+	}
+
+	nonceHash := sha256.Sum256(msg)
+
+	return sign(
+		privKey, msg, nonceHash[:], rfc6979ExtraDataMsgV0[:],
+		signOpts...,
+	)
+}
+
+// sign generates a BIP-340 signature for the provided message, which must be
+// 32 bytes unless the caller knows better, see SignMessage. The nonceHash is
+// the 32-byte value the RFC6979 nonce is derived from together with the
+// nonceExtra data, if CustomNonce isn't used.
+func sign(privKey *btcec.PrivateKey, hash, nonceHash, nonceExtra []byte,
+	signOpts ...SignOption) (*Signature, error) {
+
 	// First, parse the set of optional signing options.
 	opts := defaultSignOptions()
 	for _, option := range signOpts {
@@ -463,14 +524,7 @@ func Sign(privKey *btcec.PrivateKey, hash []byte,
 	var privKeyScalar btcec.ModNScalar
 	privKeyScalar.Set(&privKey.Key)
 
-	// Step 2.
-	//
-	// Fail if m is not 32 bytes
-	if len(hash) != ScalarSize {
-		str := fmt.Sprintf("wrong size for message hash (got %v, want %v)",
-			len(hash), ScalarSize)
-		return nil, signatureError(ecdsa_schnorr.ErrInvalidHashLen, str)
-	}
+	// Step 2 is up to the caller.
 
 	// Step 3.
 	//
@@ -551,7 +605,7 @@ func Sign(privKey *btcec.PrivateKey, hash []byte,
 		// parameterized by the private key, message being signed, extra data
 		// that identifies the scheme, and an iteration count
 		k := btcec.NonceRFC6979(
-			privKeyBytes[:], hash, rfc6979ExtraDataV0[:], nil, iteration,
+			privKeyBytes[:], nonceHash, nonceExtra, nil, iteration,
 		)
 
 		// Steps 10-15.

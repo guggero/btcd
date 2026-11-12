@@ -226,6 +226,11 @@ type taprootExecutionCtx struct {
 
 	mustSucceed bool
 
+	// opSuccess is set if the tapscript was not executed because it
+	// contains an OP_SUCCESS op code. This is one of the reasons for
+	// mustSucceed to be set.
+	opSuccess bool
+
 	// templateHash caches the BIP 446 template hash of the input, which is
 	// calculated the first time OP_TEMPLATEHASH is executed.
 	templateHash *chainhash.Hash
@@ -838,6 +843,7 @@ func (vm *Engine) verifyWitnessProgram(witness wire.TxWitness) error {
 				// Otherwise, the script passes scott free.
 				if hasOpSuccess {
 					vm.taprootCtx.mustSucceed = true
+					vm.taprootCtx.opSuccess = true
 					return nil
 				}
 			}
@@ -1692,6 +1698,33 @@ func (vm *Engine) GetAltStack() [][]byte {
 // provided array where the last item in the array will be the top of the stack.
 func (vm *Engine) SetAltStack(data [][]byte) {
 	setStack(&vm.astack, data)
+}
+
+// TapscriptSigOpsBudget returns what is left of the signature operation budget
+// of the taproot input being validated, as defined in BIP 342. The budget
+// starts at 50 plus the size of the serialized witness and every executed
+// signature check with a non-empty signature costs 50. The second return value
+// is false if the engine isn't validating a taproot input, or didn't get to
+// its witness program yet.
+//
+// This is meant for tools that step through a script, not for validation.
+func (vm *Engine) TapscriptSigOpsBudget() (int32, bool) {
+	if vm.taprootCtx == nil {
+		return 0, false
+	}
+
+	return vm.taprootCtx.sigOpsBudget, true
+}
+
+// TapscriptOpSuccess returns true if the tapscript of the input being validated
+// contains an OP_SUCCESS op code, which makes the script succeed without being
+// executed at all. Which op codes count depends on the script flags: an op code
+// that was given a meaning by a soft fork isn't an OP_SUCCESS anymore once the
+// flag of that soft fork is set.
+//
+// This is meant for tools that step through a script, not for validation.
+func (vm *Engine) TapscriptOpSuccess() bool {
+	return vm.taprootCtx != nil && vm.taprootCtx.opSuccess
 }
 
 // buildWitnessProgram detects native and nested P2SH witness programs for the
